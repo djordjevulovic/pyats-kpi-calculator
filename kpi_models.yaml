@@ -1,0 +1,167 @@
+total_routes:
+  description: "Total number of IP routes across all VRFs"
+  source:
+    nxos:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.nxos.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxe:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.iosxe.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxr:
+      show_command:  "show route summary"
+      parser_module: "genie.libs.parser.iosxr.show_routing"
+      parser_class:  "ShowRouteSummary"
+  iterate:   "vrf"
+  value_key: "total_routes"
+  operation: "sum"
+  default:   0
+
+max_routes_in_vrf:
+  description: "Highest route count found in a single VRF"
+  source:
+    nxos:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.nxos.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxe:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.iosxe.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxr:
+      show_command:  "show route summary"
+      parser_module: "genie.libs.parser.iosxr.show_routing"
+      parser_class:  "ShowRouteSummary"
+  iterate:   "vrf"
+  value_key: "total_routes"
+  operation: "max"
+  default:   0
+
+total_vrfs:
+  description: "Total number of VRFs with routing information"
+  source:
+    nxos:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.nxos.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxe:
+      show_command:  "show ip route summary"
+      parser_module: "genie.libs.parser.iosxe.show_routing"
+      parser_class:  "ShowIpRouteSummary"
+    iosxr:
+      show_command:  "show route summary"
+      parser_module: "genie.libs.parser.iosxr.show_routing"
+      parser_class:  "ShowRouteSummary"
+  iterate:   "vrf"
+  value_key: "total_routes"
+  operation: "count"
+  default:   0
+
+total_mac_addresses:
+  description: "Total number of MAC addresses across all VLANs"
+  source:
+    nxos:
+      show_command:  "show mac address-table"
+      parser_module: "genie.libs.parser.nxos.show_l2route"
+      parser_class:  "ShowMacAddressTable"
+    iosxe:
+      show_command:  "show mac address-table"
+      parser_module: "genie.libs.parser.iosxe.show_l2"
+      parser_class:  "ShowMacAddressTable"
+  iterate:   "mac_table.vlans"
+  value_key: "mac_addresses"
+  operation: "sum_lengths"
+  default:   0
+
+total_bgp_neighbors:
+  description: "Total number of BGP neighbors across all VRFs"
+  source:
+    nxos:
+      show_command:  "show bgp summary"
+      parser_module: "genie.libs.parser.nxos.show_bgp"
+      parser_class:  "ShowBgpSummary"
+    iosxe:
+      show_command:  "show bgp summary"
+      parser_module: "genie.libs.parser.iosxe.show_bgp"
+      parser_class:  "ShowBgpSummary"
+    iosxr:
+      show_command:  "show bgp summary"
+      parser_module: "genie.libs.parser.iosxr.show_bgp"
+      parser_class:  "ShowBgpSummary"
+  iterate:
+    - "vrf"
+    - "neighbor"
+  operation: "count"
+  default:   0
+
+total_bgp_routes_rib:
+  description: "Total BGP prefixes received across all VRFs, neighbors and address families"
+  source:
+    nxos:
+      show_command:  "show bgp all summary"
+      parser_module: "genie.libs.parser.nxos.show_bgp"
+      parser_class:  "ShowBgpAllSummary"
+    iosxe:
+      show_command:  "show bgp all summary"
+      parser_module: "genie.libs.parser.iosxe.show_bgp"
+      parser_class:  "ShowBgpAllSummary"
+    iosxr:
+      show_command:  "show bgp all all summary"
+      parser_module: "genie.libs.parser.iosxr.show_bgp"
+      parser_class:  "ShowBgpAllAllSummary"
+  iterate:
+    - "vrf"
+    - "neighbor"
+    - "address_family"
+  value_key: "prefixes_received"
+  operation: "sum"
+  default:   0
+
+total_bfd_sessions_up:
+  description: "Total number of BFD sessions in Up state"
+  source:
+    nxos:
+      show_command:  "show bfd neighbors"
+      parser_module: "genie.libs.parser.nxos.show_bfd"
+      parser_class:  "ShowBfdNeighbors"
+    iosxe:
+      show_command:  "show bfd neighbors"
+      parser_module: "genie.libs.parser.iosxe.show_bfd"
+      parser_class:  "ShowBfdNeighbors"
+    iosxr:
+      show_command:  "show bfd all-interfaces"
+      parser_module: "genie.libs.parser.iosxr.show_bfd"
+      parser_class:  "ShowBfdAllInterfaces"
+  iterate:
+    - "our_address"
+    - "neighbor_address"
+  operation: "count"
+  filter:
+    key:   "state"
+    value: "Up"
+  default:   0
+
+total_bfd_sessions_down:
+  description: "Total number of BFD sessions in Down state"
+  source:
+    nxos:
+      show_command:  "show bfd neighbors"
+      parser_module: "genie.libs.parser.nxos.show_bfd"
+      parser_class:  "ShowBfdNeighbors"
+    iosxe:
+      show_command:  "show bfd neighbors"
+      parser_module: "genie.libs.parser.iosxe.show_bfd"
+      parser_class:  "ShowBfdNeighbors"
+    iosxr:
+      show_command:  "show bfd all-interfaces"
+      parser_module: "genie.libs.parser.iosxr.show_bfd"
+      parser_class:  "ShowBfdAllInterfaces"
+  iterate:
+    - "our_address"
+    - "neighbor_address"
+  operation: "count"
+  filter:
+    key:   "state"
+    value: "Down"
+  default:   0
