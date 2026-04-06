@@ -14,8 +14,9 @@ from offline Cisco device show command outputs using PyATS/Genie.
 
 ### Core Principles
 - All files are exclusively AI-generated — no manual edits
-- Changes applied via: python bootstrap_project.py
-- ai-bootstrap library manages git commits and file writing
+- Changes applied via bootstrap_project.py
+- ai-bootstrap >= 0.2.0 manages git commits, file writing
+  and push to GitHub
 - KPI definitions live in kpi_models.yaml
 
 ---
@@ -33,10 +34,44 @@ schema              = >=0.7.5
 
 ---
 
-## pyproject.toml — packages directive
+## Platform Requirements
 
-Project uses single-file module structure.
-packages directive is required in pyproject.toml:
+PyATS runs on Linux/macOS/WSL2 only — not native Windows.
+Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.
+
+---
+
+## Bootstrap Setup
+
+ai-bootstrap installed in dedicated venv:
+  python3.11 -m venv ~/.bootstrap-venv
+  ~/.bootstrap-venv/bin/pip install ~/projects/ai-bootstrap
+
+Run bootstrap from project directory:
+  cd ~/projects/pyats-kpi-calculator
+  ~/.bootstrap-venv/bin/python bootstrap_project.py
+
+---
+
+## GitHub Integration
+
+bootstrap_project.py uses push=True to automatically
+push to GitHub after each bootstrap run.
+Remote must be configured:
+  git remote add origin <url>
+
+bootstrap_project.py entry point:
+  Bootstrap(project_path='.').run(
+      feature_description = '<desc>',
+      files               = FILES,
+      push                = True,
+      remote              = 'origin',
+      branch              = 'main'
+  )
+
+---
+
+## pyproject.toml — Required Directives
 
 ```toml
 packages = [{include = "kpi_calculator.py"}]
@@ -44,11 +79,14 @@ packages = [{include = "kpi_calculator.py"}]
 
 ---
 
-## Platform Requirements
+## Input Files
 
-PyATS is NOT supported on Windows.
-Supported platforms: Linux, macOS, WSL2.
-Recommended for Windows users: WSL2 + PyCharm WSL interpreter.
+Default location: input_files/ directory
+Convention: <router_name>__<show_command_underscored>.txt
+Example: input_files/LaMSC1DC01__show_ip_route_summary.txt
+
+Custom directory via CLI:
+  --input-dir /path/to/files
 
 ---
 
@@ -85,21 +123,16 @@ sum | count | max | min | avg | sum_lengths
 
 ---
 
-## File Naming Convention
+## Existing KPIs
 
-<router_name>__<show_command_underscored>.txt
-Example: core-sw-01__show_ip_route_summary.txt
-
----
-
-## Bootstrap Workflow
-
-```bash
-python bootstrap_project.py
-poetry install
-poetry run pytest
-git log --oneline
-```
+total_routes         — sum of routes across all VRFs
+max_routes_in_vrf    — max routes in a single VRF
+total_vrfs           — count of VRFs
+total_mac_addresses  — sum of MACs across all VLANs
+total_bgp_neighbors  — count of BGP neighbors
+total_bgp_routes_rib — sum of BGP prefixes received
+total_bfd_sessions_up   — count of BFD sessions Up
+total_bfd_sessions_down — count of BFD sessions Down
 
 ---
 
@@ -116,19 +149,7 @@ git log --oneline
 9.  Use project_path='.'
 10. Use forward slashes in FILES keys
 11. Update feature_description each session
-
----
-
-## Existing KPIs
-
-total_routes         — sum of routes across all VRFs
-max_routes_in_vrf    — max routes in a single VRF
-total_vrfs           — count of VRFs
-total_mac_addresses  — sum of MACs across all VLANs
-total_bgp_neighbors  — count of BGP neighbors
-total_bgp_routes_rib — sum of BGP prefixes received
-total_bfd_sessions_up   — count of BFD sessions Up
-total_bfd_sessions_down — count of BFD sessions Down
+12. Always include push=True, remote='origin', branch='main'
 
 ---
 
@@ -137,19 +158,28 @@ total_bfd_sessions_down — count of BFD sessions Down
 ```
 I am working on pyats-kpi-calculator.
 All files are exclusively AI-generated.
-Changes applied via: python bootstrap_project.py
-We use ai-bootstrap library:
+Changes applied via:
+  ~/.bootstrap-venv/bin/python bootstrap_project.py
+We use ai-bootstrap >= 0.2.0:
   Bootstrap(project_path='.').run(
-      feature_description='<desc>', files=FILES)
+      feature_description='<desc>',
+      files=FILES,
+      push=True,
+      remote='origin',
+      branch='main'
+  )
 Key files:
-  kpi_calculator.py  — generic engine
-  kpi_models.yaml    — KPI definitions
+  kpi_calculator.py    — generic engine
+  kpi_models.yaml      — KPI definitions
   bootstrap_project.py — master rebuild script
 Supported OS: nxos, iosxe, iosxr
 Operations: sum, count, max, min, avg, sum_lengths
-File convention: <router>__<command>.txt
-pyproject.toml requires: packages=[{include='kpi_calculator.py'}]
-PyATS runs on Linux/macOS/WSL2 only — not native Windows
+Input files: input_files/<router>__<command>.txt
+Custom dir:  --input-dir /path/to/files
+pyproject.toml: packages=[{include='kpi_calculator.py'}]
+PyATS: Linux/macOS/WSL2 only
+Bootstrap venv: ~/.bootstrap-venv
+GitHub remote: origin/main
 Please provide updated bootstrap_project.py with:
 <DESCRIBE YOUR CHANGE HERE>
 ```
@@ -162,3 +192,5 @@ Please provide updated bootstrap_project.py with:
 |---------|------------|---------------------------------------------------|
 | 0.1.0   | 2026-04-06 | Initial — engine, 8 KPIs, schema validation       |
 | 0.1.1   | 2026-04-06 | Fix — add packages directive to pyproject.toml    |
+| 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |
+| 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |

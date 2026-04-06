@@ -4,12 +4,12 @@
 # INSTRUCTIONS FOR AI:
 #   1. Start from latest bootstrap_project.py
 #   2. Apply requested changes to relevant FILE variables
-#   3. Update feature_description to describe the change
+#   3. Update feature_description
 #   4. Return complete updated bootstrap_project.py
 #
 # INSTRUCTIONS FOR HUMAN:
 #   1. Replace bootstrap_project.py with version from AI
-#   2. python bootstrap_project.py
+#   2. ~/.bootstrap-venv/bin/python bootstrap_project.py
 #   3. poetry install  (if pyproject.toml changed)
 #   4. poetry run pytest
 #   5. git log --oneline
@@ -22,8 +22,8 @@ KPI_MODELS_YAML    = """<content>"""
 TEST_SCHEMA_PY     = """<content>"""
 TEST_CALCULATOR_PY = """<content>"""
 TEST_PARSER_PY     = """<content>"""
-README_MD          = "<content>"
-GITIGNORE          = """<content>"""
+README_MD               = "<content>"
+GITIGNORE               = """<content>"""
 TESTS_INIT_PY           = ""
 INPUT_FILES_GITKEEP     = ""
 AI_SESSION_GUIDE_MD     = "<content>"
@@ -47,5 +47,8 @@ FILES = {
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
         feature_description = "<describe what changed>",
-        files               = FILES
+        files               = FILES,
+        push                = True,
+        remote              = "origin",
+        branch              = "main"
     )

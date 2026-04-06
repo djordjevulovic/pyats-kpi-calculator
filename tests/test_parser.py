@@ -6,25 +6,40 @@ from kpi_calculator import derive_filename, resolve_parser_class
 
 
 def test_derive_filename_basic():
-    result = derive_filename("core-sw-01", "show ip route summary")
-    assert result == "core-sw-01__show_ip_route_summary.txt"
+    result = derive_filename(
+        "LaMSC1DC01", "show ip route summary"
+    )
+    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.txt"
+
+
+def test_derive_filename_custom_input_dir():
+    result = derive_filename(
+        "LaMSC1DC01", "show ip route summary",
+        input_dir="/data/captures"
+    )
+    assert result == "/data/captures/LaMSC1DC01__show_ip_route_summary.txt"
 
 
 def test_derive_filename_with_hyphen():
-    result = derive_filename("core-sw-01", "show mac address-table")
-    assert result == "core-sw-01__show_mac_address-table.txt"
+    result = derive_filename(
+        "core-sw-01", "show mac address-table"
+    )
+    assert result == "input_files/core-sw-01__show_mac_address-table.txt"
 
 
 def test_derive_filename_iosxr_command():
-    result = derive_filename("pe-router-01", "show route summary")
-    assert result == "pe-router-01__show_route_summary.txt"
+    result = derive_filename(
+        "pe-router-01", "show route summary"
+    )
+    assert result == "input_files/pe-router-01__show_route_summary.txt"
 
 
 def test_derive_filename_custom_extension():
     result = derive_filename(
-        "core-sw-01", "show ip route summary", extension="log"
+        "LaMSC1DC01", "show ip route summary",
+        extension="log"
     )
-    assert result == "core-sw-01__show_ip_route_summary.log"
+    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.log"
 
 
 def test_resolve_valid_parser_class():

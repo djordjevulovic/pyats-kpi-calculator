@@ -12,20 +12,25 @@ poetry install
 ## Usage
 
 ```bash
-poetry run kpi-calculator --router core-sw-01 --os nxos
-poetry run kpi-calculator --router edge-rtr-02 --os iosxe
-poetry run kpi-calculator --router pe-router-01 --os iosxr
+# Default input_files/ directory
+poetry run kpi-calculator --router LaMSC1DC01 --os nxos
+
+# Custom input directory
+poetry run kpi-calculator --router LaMSC1DC01 --os nxos \
+                          --input-dir /path/to/files
 ```
 
 ## Input File Convention
 
 ```
-<router_name>__<show_command>.txt
+<input_dir>/<router_name>__<show_command>.txt
+
+Default input_dir: input_files/
 
 Examples:
-  core-sw-01__show_ip_route_summary.txt
-  core-sw-01__show_bgp_summary.txt
-  pe-router-01__show_route_summary.txt
+  input_files/LaMSC1DC01__show_ip_route_summary.txt
+  input_files/LaMSC1DC01__show_bgp_summary.txt
+  input_files/pe-router-01__show_route_summary.txt
 ```
 
 ## Adding New KPIs
