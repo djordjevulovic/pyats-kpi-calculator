@@ -15,7 +15,7 @@ from ai_bootstrap import Bootstrap
 PYPROJECT_TOML = """
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.4"
+version     = "0.1.5"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
@@ -196,15 +196,27 @@ def parse_arguments() -> argparse.Namespace:
     Parses CLI arguments.
 
     Usage:
-      python kpi_calculator.py --router <router_name> --os <os_type>
+      python kpi_calculator.py --router <name> --os <os_type>
+                               [--kpis KPI1 KPI2 ...]
+                               [--input-dir <dir>]
+                               [--models <file>]
 
     Examples:
+      # Run all KPIs
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
+
+      # Run specific KPIs only
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
-                               --input-dir /path/to/files
+          --kpis total_routes total_vrfs
+
+      # Run single KPI with custom input dir
+      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+          --kpis total_routes
+          --input-dir /data/captures
     \"\"\"
     parser = argparse.ArgumentParser(
-        description="PyATS Offline KPI Calculator"
+        description="PyATS Offline KPI Calculator",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "--router",
@@ -229,6 +241,25 @@ def parse_arguments() -> argparse.Namespace:
         dest="input_dir",
         help=f"Directory containing show command output files. "
              f"Default: {DEFAULT_INPUT_DIR}"
+    )
+    parser.add_argument(
+        "--kpis",
+        nargs="+",
+        default=None,
+        metavar="KPI_NAME",
+        help=(
+            "Space-separated list of KPI names to calculate. "
+            "If not specified all KPIs in the models file "
+            "are calculated. "
+            "Example: --kpis total_routes total_vrfs"
+        )
+    )
+    parser.add_argument(
+        "--list-kpis",
+        action="store_true",
+        default=False,
+        dest="list_kpis",
+        help="List all available KPI names from models file and exit."
     )
     return parser.parse_args()
 
@@ -286,6 +317,67 @@ def load_kpi_models(filepath: str) -> dict:
     print(f"[INFO] Schema validation passed — "
           f"{len(models)} KPI models loaded.\\n")
     return models
+
+
+# ---------------------------------------------------------------
+# KPI Selection
+# ---------------------------------------------------------------
+
+def select_kpis(kpi_models: dict,
+                requested:  list | None) -> dict:
+    \"\"\"
+    Filters KPI models to only the requested KPIs.
+    If requested is None returns all KPIs unchanged.
+
+    Validates that all requested KPI names exist in the
+    models file and exits with a helpful error if any
+    are not found — listing available KPI names.
+
+    Args:
+        kpi_models: Full dict of all loaded KPI models
+        requested:  List of requested KPI names or None
+
+    Returns:
+        Filtered dict containing only requested KPIs
+    \"\"\"
+    # No filter requested — return all
+    if requested is None:
+        return kpi_models
+
+    # Validate all requested KPIs exist
+    available  = set(kpi_models.keys())
+    requested_set = set(requested)
+    not_found  = requested_set - available
+
+    if not_found:
+        print(f"\\n[ERROR] Unknown KPI name(s): "
+              f"{sorted(not_found)}")
+        print(f"\\n  Available KPIs in '{KPI_MODELS_FILE}':")
+        for name in sorted(available):
+            desc = kpi_models[name].get("description", "")
+            print(f"    {name:<30} — {desc}")
+        print()
+        sys.exit(1)
+
+    # Return filtered dict preserving original order
+    return {
+        name: model
+        for name, model in kpi_models.items()
+        if name in requested_set
+    }
+
+
+def list_kpis(kpi_models: dict) -> None:
+    \"\"\"
+    Prints all available KPI names and descriptions then exits.
+    \"\"\"
+    print(f"\\n  Available KPIs ({len(kpi_models)} total):\\n")
+    print(f"  {'KPI Name':<35} Description")
+    print(f"  {'-' * 35} {'-' * 40}")
+    for name, model in kpi_models.items():
+        desc = model.get("description", "")
+        print(f"  {name:<35} {desc}")
+    print()
 
 
 # ---------------------------------------------------------------
@@ -389,11 +481,6 @@ def read_input_file(filepath: str) -> str:
     Reads raw CLI output from file.
     Tries multiple encodings to handle files captured
     from different platforms and tools.
-
-    Encoding priority:
-      utf-8   — standard Linux/Mac captured output
-      cp1252  — Windows terminal captured output
-      latin-1 — fallback for Western European characters
     \"\"\"
     encodings = ["utf-8", "cp1252", "latin-1"]
 
@@ -434,18 +521,6 @@ def _try_parse(parser_class,
     \"\"\"
     Attempts offline parsing trying parameter names in the
     order defined by PARSE_PARAMS constant.
-
-    Background:
-      Different Genie versions and different parser classes
-      use different parameter names for offline text input:
-        output= — used by NX-OS parsers in current Genie
-        text=   — used by some IOS-XE/IOS-XR parsers
-
-    The PARSE_PARAMS constant defines the order to try:
-      ["output", "text"]
-
-    This ensures NX-OS parsers work correctly while
-    still supporting other OS parsers.
     \"\"\"
     parser = parser_class(device=device)
     errors = []
@@ -459,14 +534,11 @@ def _try_parse(parser_class,
             errors.append(f"{param_name}= : {e}")
             continue
         except Exception as e:
-            # Non-TypeError means parser found the param but
-            # had a content error — report immediately
             print(f"[ERROR] Parsing failed for '{show_command}': {e}")
             print(f"        Parser  : {parser_class.__name__}")
             print(f"        Param   : {param_name}=")
             sys.exit(1)
 
-    # All parameter names failed
     print(f"[ERROR] Could not find working parse parameter "
           f"for '{show_command}'")
     print(f"        Parser : {parser_class.__name__}")
@@ -653,7 +725,19 @@ def main():
     os_type     = args.os
     models_file = args.models
     input_dir   = args.input_dir
+    requested   = args.kpis
     parse_cache = {}
+
+    # --- Load and validate all KPI models ---
+    kpi_models = load_kpi_models(models_file)
+
+    # --- Handle --list-kpis flag ---
+    if args.list_kpis:
+        list_kpis(kpi_models)
+        sys.exit(0)
+
+    # --- Filter to requested KPIs ---
+    selected_models = select_kpis(kpi_models, requested)
 
     print(f"\\n{'=' * 60}")
     print(f"  PyATS Offline KPI Calculator")
@@ -661,17 +745,19 @@ def main():
     print(f"  OS         : {os_type}")
     print(f"  Models File: {models_file}")
     print(f"  Input Dir  : {input_dir}")
+    print(f"  KPIs       : "
+          f"{'all (' + str(len(selected_models)) + ')' if requested is None else str(requested)}")
     print(f"{'=' * 60}\\n")
 
+    # --- Validate input directory ---
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: '{input_dir}'")
-        print(f"        Create it or use --input-dir to specify "
-              f"a different path.")
+        print(f"        Create it or use --input-dir "
+              f"to specify a different path.")
         sys.exit(1)
 
-    kpi_models = load_kpi_models(models_file)
-
-    for kpi_name, model in kpi_models.items():
+    # --- Calculate selected KPIs ---
+    for kpi_name, model in selected_models.items():
         parsed_output = parse_output(
             model, router_name, os_type, input_dir, parse_cache
         )
@@ -1101,7 +1187,12 @@ TEST_CALCULATOR_PY = """
 # Generated by CircuIT — do not edit manually
 
 import pytest
-from kpi_calculator import calculate_kpi, collect_leaf_items, resolve_path
+from kpi_calculator import (
+    calculate_kpi,
+    collect_leaf_items,
+    resolve_path,
+    select_kpis
+)
 
 
 def test_resolve_path_single_key():
@@ -1256,6 +1347,97 @@ def test_calculate_kpi_empty_data():
     result = calculate_kpi(model, parsed)
     assert result["status"] == "warning"
     assert result["value"]  == 0
+
+
+# ---------------------------------------------------------------
+# select_kpis tests
+# ---------------------------------------------------------------
+
+SAMPLE_MODELS = {
+    "total_routes": {
+        "description": "Total routes",
+        "source": {
+            "nxos": {
+                "show_command":  "show ip route summary",
+                "parser_module": "genie.libs.parser.nxos.show_routing",
+                "parser_class":  "ShowIpRouteSummary"
+            }
+        },
+        "iterate":   "vrf",
+        "value_key": "total_routes",
+        "operation": "sum",
+        "default":   0
+    },
+    "total_vrfs": {
+        "description": "Total VRFs",
+        "source": {
+            "nxos": {
+                "show_command":  "show ip route summary",
+                "parser_module": "genie.libs.parser.nxos.show_routing",
+                "parser_class":  "ShowIpRouteSummary"
+            }
+        },
+        "iterate":   "vrf",
+        "value_key": "total_routes",
+        "operation": "count",
+        "default":   0
+    },
+    "max_routes_in_vrf": {
+        "description": "Max routes in VRF",
+        "source": {
+            "nxos": {
+                "show_command":  "show ip route summary",
+                "parser_module": "genie.libs.parser.nxos.show_routing",
+                "parser_class":  "ShowIpRouteSummary"
+            }
+        },
+        "iterate":   "vrf",
+        "value_key": "total_routes",
+        "operation": "max",
+        "default":   0
+    }
+}
+
+
+def test_select_kpis_none_returns_all():
+    result = select_kpis(SAMPLE_MODELS, None)
+    assert result == SAMPLE_MODELS
+
+
+def test_select_kpis_single():
+    result = select_kpis(SAMPLE_MODELS, ["total_routes"])
+    assert list(result.keys()) == ["total_routes"]
+
+
+def test_select_kpis_multiple():
+    result = select_kpis(
+        SAMPLE_MODELS, ["total_routes", "total_vrfs"]
+    )
+    assert set(result.keys()) == {"total_routes", "total_vrfs"}
+
+
+def test_select_kpis_preserves_order():
+    result = select_kpis(
+        SAMPLE_MODELS,
+        ["max_routes_in_vrf", "total_routes"]
+    )
+    # Order should follow kpi_models dict order not request order
+    assert list(result.keys()) == [
+        "total_routes", "max_routes_in_vrf"
+    ]
+
+
+def test_select_kpis_unknown_exits():
+    with pytest.raises(SystemExit):
+        select_kpis(SAMPLE_MODELS, ["nonexistent_kpi"])
+
+
+def test_select_kpis_partial_unknown_exits():
+    with pytest.raises(SystemExit):
+        select_kpis(
+            SAMPLE_MODELS,
+            ["total_routes", "nonexistent_kpi"]
+        )
 """
 
 
@@ -1277,7 +1459,8 @@ def test_derive_filename_basic():
     result = derive_filename(
         "LaMSC1DC01", "show ip route summary"
     )
-    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.txt"
+    assert result == \
+        "input_files/LaMSC1DC01__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_input_dir():
@@ -1301,7 +1484,8 @@ def test_derive_filename_iosxr_command():
     result = derive_filename(
         "pe-router-01", "show route summary"
     )
-    assert result == "input_files/pe-router-01__show_route_summary.txt"
+    assert result == \
+        "input_files/pe-router-01__show_route_summary.txt"
 
 
 def test_derive_filename_custom_extension():
@@ -1309,7 +1493,8 @@ def test_derive_filename_custom_extension():
         "LaMSC1DC01", "show ip route summary",
         extension="log"
     )
-    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.log"
+    assert result == \
+        "input_files/LaMSC1DC01__show_ip_route_summary.log"
 
 
 def test_resolve_valid_parser_class():
@@ -1337,23 +1522,16 @@ def test_resolve_invalid_class():
 
 
 def test_parse_params_order():
-    \"\"\"output= should be tried before text= for NX-OS compatibility.\"\"\"
     assert PARSE_PARAMS[0] == "output"
     assert PARSE_PARAMS[1] == "text"
 
 
 def test_try_parse_uses_output_param():
-    \"\"\"
-    Verify _try_parse tries output= first and returns
-    result on success.
-    \"\"\"
-    mock_device = MagicMock()
-    mock_result = {"vrf": {"default": {"total_routes": 47}}}
-
+    mock_device          = MagicMock()
+    mock_result          = {"vrf": {"default": {"total_routes": 47}}}
     mock_parser_instance = MagicMock()
     mock_parser_instance.parse.return_value = mock_result
-
-    mock_parser_class = MagicMock(return_value=mock_parser_instance)
+    mock_parser_class    = MagicMock(return_value=mock_parser_instance)
 
     result = _try_parse(
         mock_parser_class,
@@ -1369,18 +1547,13 @@ def test_try_parse_uses_output_param():
 
 
 def test_try_parse_falls_back_to_text_param():
-    \"\"\"
-    Verify _try_parse falls back to text= when output= raises TypeError.
-    \"\"\"
-    mock_device = MagicMock()
-    mock_result = {"vrf": {"default": {"total_routes": 47}}}
-
+    mock_device          = MagicMock()
+    mock_result          = {"vrf": {"default": {"total_routes": 47}}}
     mock_parser_instance = MagicMock()
     mock_parser_instance.parse.side_effect = [
         TypeError("unexpected keyword argument 'output'"),
         mock_result
     ]
-
     mock_parser_class = MagicMock(return_value=mock_parser_instance)
 
     result = _try_parse(
@@ -1410,11 +1583,20 @@ README_MD = (
     "## Usage\n"
     "\n"
     "```bash\n"
-    "# Default input_files/ directory\n"
+    "# Run all KPIs\n"
     "poetry run kpi-calculator --router LaMSC1DC01 --os nxos\n"
     "\n"
-    "# Custom input directory\n"
+    "# List available KPIs\n"
     "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
+    "                          --list-kpis\n"
+    "\n"
+    "# Run specific KPIs only\n"
+    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
+    "                          --kpis total_routes total_vrfs\n"
+    "\n"
+    "# Run with custom input directory\n"
+    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
+    "                          --kpis total_routes \\\n"
     "                          --input-dir /path/to/files\n"
     "```\n"
     "\n"
@@ -1521,8 +1703,7 @@ AI_SESSION_GUIDE_MD = (
     "## Genie Parser Parameter Note\n"
     "\n"
     "NX-OS Genie parsers use output= not text= for offline parsing.\n"
-    "The engine tries PARSE_PARAMS = ['output', 'text'] in order.\n"
-    "output= is tried first for NX-OS compatibility.\n"
+    "Engine tries PARSE_PARAMS = ['output', 'text'] in order.\n"
     "\n"
     "---\n"
     "\n"
@@ -1532,24 +1713,20 @@ AI_SESSION_GUIDE_MD = (
     "  python3.11 -m venv ~/.bootstrap-venv\n"
     "  ~/.bootstrap-venv/bin/pip install ~/projects/ai-bootstrap\n"
     "\n"
-    "Run bootstrap from project directory:\n"
+    "Run bootstrap:\n"
     "  cd ~/projects/pyats-kpi-calculator\n"
     "  ~/.bootstrap-venv/bin/python bootstrap_project.py\n"
     "\n"
     "---\n"
     "\n"
-    "## GitHub Integration\n"
+    "## CLI Arguments\n"
     "\n"
-    "bootstrap_project.py uses push=True to automatically\n"
-    "push to GitHub after each bootstrap run.\n"
-    "\n"
-    "---\n"
-    "\n"
-    "## pyproject.toml — Required Directives\n"
-    "\n"
-    "```toml\n"
-    "packages = [{include = \"kpi_calculator.py\"}]\n"
-    "```\n"
+    "  --router      Router name (required)\n"
+    "  --os          OS type: nxos | iosxe | iosxr (required)\n"
+    "  --kpis        Space-separated KPI names (optional, default: all)\n"
+    "  --list-kpis   List available KPIs and exit\n"
+    "  --input-dir   Input files directory (default: input_files)\n"
+    "  --models      KPI models YAML file (default: kpi_models.yaml)\n"
     "\n"
     "---\n"
     "\n"
@@ -1561,9 +1738,6 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "File encoding: utf-8 preferred.\n"
     "Engine also handles cp1252 and latin-1 automatically.\n"
-    "\n"
-    "Custom directory via CLI:\n"
-    "  --input-dir /path/to/files\n"
     "\n"
     "---\n"
     "\n"
@@ -1652,8 +1826,9 @@ AI_SESSION_GUIDE_MD = (
     "Supported OS: nxos, iosxe, iosxr\n"
     "Operations: sum, count, max, min, avg, sum_lengths\n"
     "Input files: input_files/<router>__<command>.txt\n"
-    "Genie parsers: use output= param (not text=)\n"
-    "               PARSE_PARAMS = ['output', 'text']\n"
+    "Genie parsers: PARSE_PARAMS = ['output', 'text']\n"
+    "CLI args: --router --os --kpis --list-kpis\n"
+    "          --input-dir --models\n"
     "pyproject.toml: packages=[{include='kpi_calculator.py'}]\n"
     "PyATS: Linux/macOS/WSL2 only\n"
     "Bootstrap venv: ~/.bootstrap-venv\n"
@@ -1673,6 +1848,7 @@ AI_SESSION_GUIDE_MD = (
     "| 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |\n"
     "| 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |\n"
     "| 0.1.4   | 2026-04-07 | Fix — use output= param, add encoding handling    |\n"
+    "| 0.1.5   | 2026-04-07 | Add — --kpis and --list-kpis CLI arguments        |\n"
 )
 
 
@@ -1764,7 +1940,7 @@ FILES = {
 
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
-        feature_description = "fix output= param and add encoding handling",
+        feature_description = "add --kpis and --list-kpis CLI arguments",
         files               = FILES,
         push                = True,
         remote              = "origin",
