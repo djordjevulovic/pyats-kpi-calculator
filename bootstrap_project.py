@@ -15,7 +15,7 @@ from ai_bootstrap import Bootstrap
 PYPROJECT_TOML = """
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.5"
+version     = "0.1.6"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
@@ -200,19 +200,19 @@ def parse_arguments() -> argparse.Namespace:
                                [--kpis KPI1 KPI2 ...]
                                [--input-dir <dir>]
                                [--models <file>]
+                               [--list-kpis]
 
     Examples:
       # Run all KPIs
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
 
+      # List available KPIs
+      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+          --list-kpis
+
       # Run specific KPIs only
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
           --kpis total_routes total_vrfs
-
-      # Run single KPI with custom input dir
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
-          --kpis total_routes
-          --input-dir /data/captures
     \"\"\"
     parser = argparse.ArgumentParser(
         description="PyATS Offline KPI Calculator",
@@ -249,8 +249,7 @@ def parse_arguments() -> argparse.Namespace:
         metavar="KPI_NAME",
         help=(
             "Space-separated list of KPI names to calculate. "
-            "If not specified all KPIs in the models file "
-            "are calculated. "
+            "If not specified all KPIs are calculated. "
             "Example: --kpis total_routes total_vrfs"
         )
     )
@@ -259,7 +258,7 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="list_kpis",
-        help="List all available KPI names from models file and exit."
+        help="List all available KPI names and exit."
     )
     return parser.parse_args()
 
@@ -328,26 +327,13 @@ def select_kpis(kpi_models: dict,
     \"\"\"
     Filters KPI models to only the requested KPIs.
     If requested is None returns all KPIs unchanged.
-
-    Validates that all requested KPI names exist in the
-    models file and exits with a helpful error if any
-    are not found — listing available KPI names.
-
-    Args:
-        kpi_models: Full dict of all loaded KPI models
-        requested:  List of requested KPI names or None
-
-    Returns:
-        Filtered dict containing only requested KPIs
     \"\"\"
-    # No filter requested — return all
     if requested is None:
         return kpi_models
 
-    # Validate all requested KPIs exist
-    available  = set(kpi_models.keys())
+    available     = set(kpi_models.keys())
     requested_set = set(requested)
-    not_found  = requested_set - available
+    not_found     = requested_set - available
 
     if not_found:
         print(f"\\n[ERROR] Unknown KPI name(s): "
@@ -355,11 +341,10 @@ def select_kpis(kpi_models: dict,
         print(f"\\n  Available KPIs in '{KPI_MODELS_FILE}':")
         for name in sorted(available):
             desc = kpi_models[name].get("description", "")
-            print(f"    {name:<30} — {desc}")
+            print(f"    {name:<30} -- {desc}")
         print()
         sys.exit(1)
 
-    # Return filtered dict preserving original order
     return {
         name: model
         for name, model in kpi_models.items()
@@ -414,10 +399,6 @@ def derive_filename(router_name: str,
 
     Convention:
       <input_dir>/<router_name>__<show_command_underscored>.<ext>
-
-    Examples:
-      router="LaMSC1DC01", cmd="show ip route summary"
-        -> "input_files/LaMSC1DC01__show_ip_route_summary.txt"
     \"\"\"
     command_part = show_command.lower().replace(" ", "_")
     filename     = f"{router_name}__{command_part}.{extension}"
@@ -511,7 +492,7 @@ def read_input_file(filepath: str) -> str:
 
 
 # ---------------------------------------------------------------
-# Genie Parser — Try Multiple Parameter Names
+# Genie Parser -- Try Multiple Parameter Names
 # ---------------------------------------------------------------
 
 def _try_parse(parser_class,
@@ -728,15 +709,12 @@ def main():
     requested   = args.kpis
     parse_cache = {}
 
-    # --- Load and validate all KPI models ---
     kpi_models = load_kpi_models(models_file)
 
-    # --- Handle --list-kpis flag ---
     if args.list_kpis:
         list_kpis(kpi_models)
         sys.exit(0)
 
-    # --- Filter to requested KPIs ---
     selected_models = select_kpis(kpi_models, requested)
 
     print(f"\\n{'=' * 60}")
@@ -749,20 +727,18 @@ def main():
           f"{'all (' + str(len(selected_models)) + ')' if requested is None else str(requested)}")
     print(f"{'=' * 60}\\n")
 
-    # --- Validate input directory ---
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: '{input_dir}'")
         print(f"        Create it or use --input-dir "
               f"to specify a different path.")
         sys.exit(1)
 
-    # --- Calculate selected KPIs ---
     for kpi_name, model in selected_models.items():
         parsed_output = parse_output(
             model, router_name, os_type, input_dir, parse_cache
         )
         if parsed_output is None:
-            print(f"[SKIP] KPI '{kpi_name}' — "
+            print(f"[SKIP] KPI '{kpi_name}' -- "
                   f"OS '{os_type}' not supported.\\n")
             continue
 
@@ -843,7 +819,7 @@ total_mac_addresses:
   source:
     nxos:
       show_command:  "show mac address-table"
-      parser_module: "genie.libs.parser.nxos.show_l2route"
+      parser_module: "genie.libs.parser.nxos.show_fdb"
       parser_class:  "ShowMacAddressTable"
     iosxe:
       show_command:  "show mac address-table"
@@ -950,7 +926,7 @@ total_bfd_sessions_down:
 
 TEST_SCHEMA_PY = """
 # tests/test_schema.py
-# Generated by CircuIT — do not edit manually
+# Generated by CircuIT -- do not edit manually
 
 import pytest
 from schema import SchemaError
@@ -1184,7 +1160,7 @@ def test_validate_kpi_models_reports_all_failures():
 
 TEST_CALCULATOR_PY = """
 # tests/test_calculator.py
-# Generated by CircuIT — do not edit manually
+# Generated by CircuIT -- do not edit manually
 
 import pytest
 from kpi_calculator import (
@@ -1349,10 +1325,6 @@ def test_calculate_kpi_empty_data():
     assert result["value"]  == 0
 
 
-# ---------------------------------------------------------------
-# select_kpis tests
-# ---------------------------------------------------------------
-
 SAMPLE_MODELS = {
     "total_routes": {
         "description": "Total routes",
@@ -1421,7 +1393,6 @@ def test_select_kpis_preserves_order():
         SAMPLE_MODELS,
         ["max_routes_in_vrf", "total_routes"]
     )
-    # Order should follow kpi_models dict order not request order
     assert list(result.keys()) == [
         "total_routes", "max_routes_in_vrf"
     ]
@@ -1443,10 +1414,10 @@ def test_select_kpis_partial_unknown_exits():
 
 TEST_PARSER_PY = """
 # tests/test_parser.py
-# Generated by CircuIT — do not edit manually
+# Generated by CircuIT -- do not edit manually
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from kpi_calculator import (
     derive_filename,
     resolve_parser_class,
@@ -1501,6 +1472,15 @@ def test_resolve_valid_parser_class():
     cls = resolve_parser_class(
         "genie.libs.parser.nxos.show_routing",
         "ShowIpRouteSummary"
+    )
+    assert cls is not None
+
+
+def test_resolve_correct_mac_parser():
+    \"\"\"Verify correct MAC parser module is show_fdb not show_l2route.\"\"\"
+    cls = resolve_parser_class(
+        "genie.libs.parser.nxos.show_fdb",
+        "ShowMacAddressTable"
     )
     assert cls is not None
 
@@ -1571,7 +1551,7 @@ def test_try_parse_falls_back_to_text_param():
 README_MD = (
     "# pyats-kpi-calculator\n"
     "\n"
-    "PyATS Offline KPI Calculator — Extract KPIs from captured\n"
+    "PyATS Offline KPI Calculator -- Extract KPIs from captured\n"
     "NX-OS, IOS-XE and IOS-XR show command outputs.\n"
     "\n"
     "## Installation\n"
@@ -1596,7 +1576,7 @@ README_MD = (
     "\n"
     "# Run with custom input directory\n"
     "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
-    "                          --kpis total_routes \\\n"
+    "                          --kpis total_mac_addresses \\\n"
     "                          --input-dir /path/to/files\n"
     "```\n"
     "\n"
@@ -1609,13 +1589,13 @@ README_MD = (
     "\n"
     "Examples:\n"
     "  input_files/LaMSC1DC01__show_ip_route_summary.txt\n"
+    "  input_files/LaMSC1DC01__show_mac_address-table.txt\n"
     "  input_files/LaMSC1DC01__show_bgp_summary.txt\n"
-    "  input_files/pe-router-01__show_route_summary.txt\n"
     "```\n"
     "\n"
     "## Adding New KPIs\n"
     "\n"
-    "Edit kpi_models.yaml only — no Python changes needed.\n"
+    "Edit kpi_models.yaml only -- no Python changes needed.\n"
     "\n"
     "## License\n"
     "MIT\n"
@@ -1650,14 +1630,14 @@ htmlcov/
 # Ruff
 .ruff_cache/
 
-# Input files — excluded from git
+# Input files -- excluded from git
 # Remove this line to commit sample input files
 input_files/*.txt
 """
 
 
 AI_SESSION_GUIDE_MD = (
-    "# AI Session Guide — pyats-kpi-calculator\n"
+    "# AI Session Guide -- pyats-kpi-calculator\n"
     "\n"
     "## Purpose\n"
     "\n"
@@ -1672,7 +1652,7 @@ AI_SESSION_GUIDE_MD = (
     "from offline Cisco device show command outputs using PyATS/Genie.\n"
     "\n"
     "### Core Principles\n"
-    "- All files are exclusively AI-generated — no manual edits\n"
+    "- All files are exclusively AI-generated -- no manual edits\n"
     "- Changes applied via bootstrap_project.py\n"
     "- ai-bootstrap >= 0.2.0 manages git commits, file writing\n"
     "  and push to GitHub\n"
@@ -1695,15 +1675,20 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "## Platform Requirements\n"
     "\n"
-    "PyATS runs on Linux/macOS/WSL2 only — not native Windows.\n"
+    "PyATS runs on Linux/macOS/WSL2 only -- not native Windows.\n"
     "Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.\n"
     "\n"
     "---\n"
     "\n"
-    "## Genie Parser Parameter Note\n"
+    "## Genie Parser Notes\n"
     "\n"
-    "NX-OS Genie parsers use output= not text= for offline parsing.\n"
+    "NX-OS parsers use output= not text= for offline parsing.\n"
     "Engine tries PARSE_PARAMS = ['output', 'text'] in order.\n"
+    "\n"
+    "Verified NX-OS parser locations:\n"
+    "  show ip route summary  -> show_routing.ShowIpRouteSummary\n"
+    "  show mac address-table -> show_fdb.ShowMacAddressTable\n"
+    "  show bgp summary       -> show_bgp.ShowBgpSummary\n"
     "\n"
     "---\n"
     "\n"
@@ -1776,21 +1761,21 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "## Existing KPIs\n"
     "\n"
-    "total_routes         — sum of routes across all VRFs\n"
-    "max_routes_in_vrf    — max routes in a single VRF\n"
-    "total_vrfs           — count of VRFs\n"
-    "total_mac_addresses  — sum of MACs across all VLANs\n"
-    "total_bgp_neighbors  — count of BGP neighbors\n"
-    "total_bgp_routes_rib — sum of BGP prefixes received\n"
-    "total_bfd_sessions_up   — count of BFD sessions Up\n"
-    "total_bfd_sessions_down — count of BFD sessions Down\n"
+    "total_routes         -- sum of routes across all VRFs\n"
+    "max_routes_in_vrf    -- max routes in a single VRF\n"
+    "total_vrfs           -- count of VRFs\n"
+    "total_mac_addresses  -- sum of MACs across all VLANs\n"
+    "total_bgp_neighbors  -- count of BGP neighbors\n"
+    "total_bgp_routes_rib -- sum of BGP prefixes received\n"
+    "total_bfd_sessions_up   -- count of BFD sessions Up\n"
+    "total_bfd_sessions_down -- count of BFD sessions Down\n"
     "\n"
     "---\n"
     "\n"
     "## Bootstrap File Rules\n"
     "\n"
     "1.  Always include ALL files in FILES dict\n"
-    "2.  Always overwrite — never skip or protect\n"
+    "2.  Always overwrite -- never skip or protect\n"
     "3.  Triple-quoted strings for .py .yaml .toml\n"
     "4.  Concatenated strings for .md with code blocks\n"
     "5.  Escape internal quotes as \\\"\n"
@@ -1820,13 +1805,14 @@ AI_SESSION_GUIDE_MD = (
     "      branch='main'\n"
     "  )\n"
     "Key files:\n"
-    "  kpi_calculator.py    — generic engine\n"
-    "  kpi_models.yaml      — KPI definitions\n"
-    "  bootstrap_project.py — master rebuild script\n"
+    "  kpi_calculator.py    -- generic engine\n"
+    "  kpi_models.yaml      -- KPI definitions\n"
+    "  bootstrap_project.py -- master rebuild script\n"
     "Supported OS: nxos, iosxe, iosxr\n"
     "Operations: sum, count, max, min, avg, sum_lengths\n"
     "Input files: input_files/<router>__<command>.txt\n"
-    "Genie parsers: PARSE_PARAMS = ['output', 'text']\n"
+    "Genie NX-OS: PARSE_PARAMS=['output','text']\n"
+    "             show_fdb.ShowMacAddressTable for MAC KPI\n"
     "CLI args: --router --os --kpis --list-kpis\n"
     "          --input-dir --models\n"
     "pyproject.toml: packages=[{include='kpi_calculator.py'}]\n"
@@ -1843,18 +1829,19 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "| Version | Date       | Changes                                           |\n"
     "|---------|------------|---------------------------------------------------|\n"
-    "| 0.1.0   | 2026-04-06 | Initial — engine, 8 KPIs, schema validation       |\n"
-    "| 0.1.1   | 2026-04-06 | Fix — add packages directive to pyproject.toml    |\n"
-    "| 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |\n"
-    "| 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |\n"
-    "| 0.1.4   | 2026-04-07 | Fix — use output= param, add encoding handling    |\n"
-    "| 0.1.5   | 2026-04-07 | Add — --kpis and --list-kpis CLI arguments        |\n"
+    "| 0.1.0   | 2026-04-06 | Initial -- engine, 8 KPIs, schema validation      |\n"
+    "| 0.1.1   | 2026-04-06 | Fix -- add packages directive to pyproject.toml   |\n"
+    "| 0.1.2   | 2026-04-06 | Fix -- add input_files/ dir to file path          |\n"
+    "| 0.1.3   | 2026-04-06 | Add -- push to GitHub via ai-bootstrap 0.2.0      |\n"
+    "| 0.1.4   | 2026-04-07 | Fix -- use output= param, add encoding handling   |\n"
+    "| 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |\n"
+    "| 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|\n"
 )
 
 
 BOOTSTRAP_TEMPLATE_PY = """
 # BOOTSTRAP_TEMPLATE.py
-# pyats-kpi-calculator — Template for AI update sessions
+# pyats-kpi-calculator -- Template for AI update sessions
 #
 # INSTRUCTIONS FOR AI:
 #   1. Start from latest bootstrap_project.py
@@ -1940,7 +1927,7 @@ FILES = {
 
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
-        feature_description = "add --kpis and --list-kpis CLI arguments",
+        feature_description = "fix MAC parser module to show_fdb",
         files               = FILES,
         push                = True,
         remote              = "origin",
