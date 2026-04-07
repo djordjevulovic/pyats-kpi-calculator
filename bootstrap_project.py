@@ -15,7 +15,7 @@ from ai_bootstrap import Bootstrap
 PYPROJECT_TOML = """
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.7"
+version     = "0.1.8"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
@@ -80,8 +80,10 @@ KPI_CALCULATOR_PY = """
 
 import os
 import sys
+import json
 import argparse
 import importlib
+from datetime import datetime
 
 import yaml
 from schema import Schema, And, Or, Optional, SchemaError
@@ -96,6 +98,13 @@ VALID_OPERATIONS  = ["sum", "count", "max", "min", "avg", "sum_lengths"]
 SUPPORTED_OS      = ["nxos", "iosxe", "iosxr"]
 KPI_MODELS_FILE   = "kpi_models.yaml"
 DEFAULT_INPUT_DIR = "input_files"
+DEFAULT_VERBOSITY = 2
+
+# Verbosity levels
+VERBOSITY_SILENT  = 0   # No console output
+VERBOSITY_MINIMAL = 1   # One line per KPI: name + value
+VERBOSITY_NORMAL  = 2   # Condensed — show/file/status/value
+VERBOSITY_VERBOSE = 3   # Full — all fields + breakdown
 
 # Genie parser parameter names to try in order
 # output= works with NX-OS parsers in current Genie version
@@ -201,18 +210,32 @@ def parse_arguments() -> argparse.Namespace:
                                [--input-dir <dir>]
                                [--models <file>]
                                [--list-kpis]
+                               [--verbosity 0|1|2|3]
+                               [--output-json <file>]
+
+    Verbosity levels:
+      0 = silent  -- no console output
+      1 = minimal -- one line per KPI: name + value
+      2 = normal  -- condensed output (default)
+      3 = verbose -- full output with breakdown
 
     Examples:
-      # Run all KPIs
+      # Normal output (default)
       python kpi_calculator.py --router n7k --os nxos
 
-      # List available KPIs
+      # Minimal one-line output
       python kpi_calculator.py --router n7k --os nxos
-          --list-kpis
+          --verbosity 1
 
-      # Run specific KPIs only
+      # Silent with JSON output only
       python kpi_calculator.py --router n7k --os nxos
-          --kpis total_routes total_vrfs
+          --verbosity 0
+          --output-json results.json
+
+      # Full verbose output + JSON
+      python kpi_calculator.py --router n7k --os nxos
+          --verbosity 3
+          --output-json results.json
     \"\"\"
     parser = argparse.ArgumentParser(
         description="PyATS Offline KPI Calculator",
@@ -259,6 +282,27 @@ def parse_arguments() -> argparse.Namespace:
         default=False,
         dest="list_kpis",
         help="List all available KPI names and exit."
+    )
+    parser.add_argument(
+        "--verbosity",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=DEFAULT_VERBOSITY,
+        metavar="LEVEL",
+        help=(
+            "Console output verbosity level. "
+            "0=silent 1=minimal 2=normal (default) 3=verbose"
+        )
+    )
+    parser.add_argument(
+        "--output-json",
+        default=None,
+        dest="output_json",
+        metavar="FILE",
+        help=(
+            "Write KPI results to JSON file. "
+            "Example: --output-json results.json"
+        )
     )
     return parser.parse_args()
 
@@ -513,7 +557,6 @@ def _try_parse(parser_class,
     for param_name in PARSE_PARAMS:
         try:
             result = parser.parse(**{param_name: raw_output})
-            print(f"[INFO] Parsed using {param_name}= parameter")
             return result
         except TypeError as e:
             errors.append(f"{param_name}= : {e}")
@@ -541,7 +584,8 @@ def parse_output(model: dict,
                  router_name: str,
                  os_type: str,
                  input_dir: str,
-                 parse_cache: dict) -> dict | None:
+                 parse_cache: dict,
+                 verbosity: int) -> dict | None:
     \"\"\"
     Selects OS-specific show_command and parser_class from
     the YAML model, dynamically resolves the parser class,
@@ -565,14 +609,16 @@ def parse_output(model: dict,
     input_file = derive_filename(router_name, show_command, input_dir)
 
     if input_file in parse_cache:
-        print(f"[CACHE] Using cached result for: '{input_file}'")
+        if verbosity >= VERBOSITY_VERBOSE:
+            print(f"[CACHE] Using cached result for: '{input_file}'")
         return parse_cache[input_file]
 
-    print(f"[INFO] Router    : '{router_name}'")
-    print(f"[INFO] OS        : '{os_type}'")
-    print(f"[INFO] Command   : '{show_command}'")
-    print(f"[INFO] Input dir : '{input_dir}'")
-    print(f"[INFO] File      : '{input_file}'")
+    if verbosity >= VERBOSITY_VERBOSE:
+        print(f"[INFO] Router    : '{router_name}'")
+        print(f"[INFO] OS        : '{os_type}'")
+        print(f"[INFO] Command   : '{show_command}'")
+        print(f"[INFO] Input dir : '{input_dir}'")
+        print(f"[INFO] File      : '{input_file}'")
 
     resolved_class = resolve_parser_class(parser_module, parser_class)
     device         = create_device(router_name, os_type)
@@ -674,11 +720,44 @@ def print_kpi_result(kpi_name: str,
                      result: dict,
                      router_name: str,
                      os_type: str,
-                     input_dir: str) -> None:
+                     input_dir: str,
+                     verbosity: int) -> None:
+    \"\"\"
+    Prints KPI result to console at requested verbosity level.
+
+    Level 0 (silent)  : no output
+    Level 1 (minimal) : one line — KPI name + value
+    Level 2 (normal)  : condensed — command, file, status, value
+    Level 3 (verbose) : full — all fields + breakdown
+    \"\"\"
+    if verbosity == VERBOSITY_SILENT:
+        return
+
     os_source    = model.get("source", {}).get(os_type, {})
     show_command = os_source.get("show_command", "N/A")
     input_file   = derive_filename(router_name, show_command, input_dir)
+    status       = result.get("status")
+    value        = result.get("value")
 
+    # --- Level 1: minimal ---
+    if verbosity == VERBOSITY_MINIMAL:
+        status_tag = "" if status == "ok" else f" [{status.upper()}]"
+        print(f"  {kpi_name:<35} : {value}{status_tag}")
+        return
+
+    # --- Level 2: normal ---
+    if verbosity == VERBOSITY_NORMAL:
+        print(f"\\n  {'KPI':<18} : {kpi_name}")
+        print(f"  {'Description':<18} : {result.get('description')}")
+        print(f"  {'Show Command':<18} : {show_command}")
+        print(f"  {'Input File':<18} : {input_file}")
+        print(f"  {'Status':<18} : {status}")
+        print(f"  {'Value':<18} : {value}")
+        if status == "warning":
+            print(f"  {'Message':<18} : {result.get('message')}")
+        return
+
+    # --- Level 3: verbose ---
     print("\\n" + "=" * 60)
     print(f"  KPI          : {kpi_name}")
     print("=" * 60)
@@ -688,16 +767,75 @@ def print_kpi_result(kpi_name: str,
     print(f"  Show Command : {show_command}")
     print(f"  Input Dir    : {input_dir}")
     print(f"  Input File   : {input_file}")
-    print(f"  Status       : {result.get('status')}")
+    print(f"  Status       : {status}")
     print(f"  Operation    : {result.get('operation')}")
     if model.get("filter"):
         f = model.get("filter")
         print(f"  Filter       : {f.get('key')} == '{f.get('value')}'")
     print(f"\\n  Breakdown:")
-    for item, value in result.get("breakdown", {}).items():
-        print(f"    {item:<25} : {value}")
-    print(f"\\n  Result Value : {result.get('value')}")
+    for item, val in result.get("breakdown", {}).items():
+        print(f"    {item:<25} : {val}")
+    print(f"\\n  Result Value : {value}")
     print("=" * 60 + "\\n")
+
+
+# ---------------------------------------------------------------
+# JSON Output
+# ---------------------------------------------------------------
+
+def build_json_output(router_name: str,
+                      os_type: str,
+                      results: dict) -> dict:
+    \"\"\"
+    Builds the JSON output structure from collected results.
+
+    Structure:
+    {
+        "router":    "<router_name>",
+        "os":        "<os_type>",
+        "timestamp": "<ISO 8601 timestamp>",
+        "kpis": {
+            "<kpi_name>": {
+                "description": "<str>",
+                "value":       <int|float>,
+                "status":      "<str>",
+                "operation":   "<str>"
+            },
+            ...
+        }
+    }
+    \"\"\"
+    return {
+        "router":    router_name,
+        "os":        os_type,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "kpis": {
+            kpi_name: {
+                "description": result.get("description", ""),
+                "value":       result.get("value"),
+                "status":      result.get("status"),
+                "operation":   result.get("operation")
+            }
+            for kpi_name, result in results.items()
+        }
+    }
+
+
+def write_json_output(json_data: dict,
+                      filepath: str,
+                      verbosity: int) -> None:
+    \"\"\"
+    Writes JSON output to file.
+    \"\"\"
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(json_data, f, indent=2)
+        if verbosity > VERBOSITY_SILENT:
+            print(f"\\n[INFO] JSON output written to: '{filepath}'")
+    except IOError as e:
+        print(f"[ERROR] Could not write JSON output "
+              f"to '{filepath}': {e}")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------
@@ -711,45 +849,76 @@ def main():
     models_file = args.models
     input_dir   = args.input_dir
     requested   = args.kpis
+    verbosity   = args.verbosity
+    output_json = args.output_json
     parse_cache = {}
+    results     = {}
 
+    # --- Load and validate all KPI models ---
     kpi_models = load_kpi_models(models_file)
 
+    # --- Handle --list-kpis flag ---
     if args.list_kpis:
         list_kpis(kpi_models)
         sys.exit(0)
 
+    # --- Filter to requested KPIs ---
     selected_models = select_kpis(kpi_models, requested)
 
-    print(f"\\n{'=' * 60}")
-    print(f"  PyATS Offline KPI Calculator")
-    print(f"  Router     : {router_name}")
-    print(f"  OS         : {os_type}")
-    print(f"  Models File: {models_file}")
-    print(f"  Input Dir  : {input_dir}")
-    print(f"  KPIs       : "
-          f"{'all (' + str(len(selected_models)) + ')' if requested is None else str(requested)}")
-    print(f"{'=' * 60}\\n")
+    # --- Print header ---
+    if verbosity >= VERBOSITY_NORMAL:
+        print(f"\\n{'=' * 60}")
+        print(f"  PyATS Offline KPI Calculator")
+        print(f"  Router     : {router_name}")
+        print(f"  OS         : {os_type}")
+        print(f"  Models File: {models_file}")
+        print(f"  Input Dir  : {input_dir}")
+        print(f"  KPIs       : "
+              f"{'all (' + str(len(selected_models)) + ')' if requested is None else str(requested)}")
+        if output_json:
+            print(f"  JSON Output: {output_json}")
+        print(f"{'=' * 60}\\n")
+    elif verbosity == VERBOSITY_MINIMAL:
+        print(f"\\n  Router: {router_name}  OS: {os_type}\\n")
 
+    # --- Validate input directory ---
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: '{input_dir}'")
-        print(f"        Create it or use --input-dir "
-              f"to specify a different path.")
         sys.exit(1)
 
+    # --- Calculate selected KPIs ---
     for kpi_name, model in selected_models.items():
         parsed_output = parse_output(
-            model, router_name, os_type, input_dir, parse_cache
+            model, router_name, os_type,
+            input_dir, parse_cache, verbosity
         )
         if parsed_output is None:
-            print(f"[SKIP] KPI '{kpi_name}' -- "
-                  f"OS '{os_type}' not supported.\\n")
+            if verbosity >= VERBOSITY_NORMAL:
+                print(f"[SKIP] KPI '{kpi_name}' -- "
+                      f"OS '{os_type}' not supported.\\n")
             continue
 
         result = calculate_kpi(model, parsed_output)
+        results[kpi_name] = result
+
         print_kpi_result(
-            kpi_name, model, result, router_name, os_type, input_dir
+            kpi_name, model, result,
+            router_name, os_type, input_dir, verbosity
         )
+
+    # --- Write JSON output if requested ---
+    if output_json and results:
+        json_data = build_json_output(router_name, os_type, results)
+        write_json_output(json_data, output_json, verbosity)
+
+    # --- Minimal footer ---
+    if verbosity == VERBOSITY_MINIMAL:
+        total  = len(results)
+        ok     = sum(1 for r in results.values()
+                     if r.get("status") == "ok")
+        warn   = total - ok
+        suffix = f"  ({warn} warnings)" if warn else ""
+        print(f"\\n  Total: {total} KPIs calculated{suffix}\\n")
 
 
 if __name__ == "__main__":
@@ -1167,11 +1336,16 @@ TEST_CALCULATOR_PY = """
 # Generated by CircuIT -- do not edit manually
 
 import pytest
+import json
+import os
 from kpi_calculator import (
     calculate_kpi,
     collect_leaf_items,
     resolve_path,
-    select_kpis
+    select_kpis,
+    build_json_output,
+    write_json_output,
+    VERBOSITY_SILENT
 )
 
 
@@ -1413,6 +1587,79 @@ def test_select_kpis_partial_unknown_exits():
             SAMPLE_MODELS,
             ["total_routes", "nonexistent_kpi"]
         )
+
+
+# ---------------------------------------------------------------
+# JSON output tests
+# ---------------------------------------------------------------
+
+SAMPLE_RESULTS = {
+    "total_routes": {
+        "description": "Total routes",
+        "value":       47,
+        "status":      "ok",
+        "operation":   "sum"
+    },
+    "total_vrfs": {
+        "description": "Total VRFs",
+        "value":       1,
+        "status":      "ok",
+        "operation":   "count"
+    }
+}
+
+
+def test_build_json_output_structure():
+    data = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    assert data["router"]    == "n7k"
+    assert data["os"]        == "nxos"
+    assert "timestamp"       in data
+    assert "kpis"            in data
+    assert "total_routes"    in data["kpis"]
+    assert "total_vrfs"      in data["kpis"]
+
+
+def test_build_json_output_kpi_fields():
+    data = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    kpi  = data["kpis"]["total_routes"]
+    assert kpi["value"]     == 47
+    assert kpi["status"]    == "ok"
+    assert kpi["operation"] == "sum"
+    assert "description"    in kpi
+
+
+def test_build_json_output_timestamp_format():
+    data = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    from datetime import datetime
+    datetime.fromisoformat(data["timestamp"])
+
+
+def test_write_json_output_creates_file(tmp_path):
+    filepath = str(tmp_path / "output.json")
+    data     = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    write_json_output(data, filepath, VERBOSITY_SILENT)
+    assert os.path.exists(filepath)
+
+
+def test_write_json_output_valid_json(tmp_path):
+    filepath = str(tmp_path / "output.json")
+    data     = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    write_json_output(data, filepath, VERBOSITY_SILENT)
+    with open(filepath) as f:
+        loaded = json.load(f)
+    assert loaded["router"] == "n7k"
+    assert loaded["os"]     == "nxos"
+    assert len(loaded["kpis"]) == 2
+
+
+def test_write_json_output_correct_values(tmp_path):
+    filepath = str(tmp_path / "output.json")
+    data     = build_json_output("n7k", "nxos", SAMPLE_RESULTS)
+    write_json_output(data, filepath, VERBOSITY_SILENT)
+    with open(filepath) as f:
+        loaded = json.load(f)
+    assert loaded["kpis"]["total_routes"]["value"] == 47
+    assert loaded["kpis"]["total_vrfs"]["value"]   == 1
 """
 
 
@@ -1564,28 +1811,57 @@ README_MD = (
     "## Usage\n"
     "\n"
     "```bash\n"
-    "# Run all KPIs\n"
+    "# Run all KPIs (normal output)\n"
     "poetry run kpi-calculator --router n7k --os nxos\n"
+    "\n"
+    "# Minimal one-line output\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
+    "                          --verbosity 1\n"
+    "\n"
+    "# Full verbose output\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
+    "                          --verbosity 3\n"
+    "\n"
+    "# Silent with JSON output only\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
+    "                          --verbosity 0 \\\n"
+    "                          --output-json results.json\n"
+    "\n"
+    "# Specific KPIs + JSON output\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
+    "                          --kpis total_routes total_vrfs \\\n"
+    "                          --output-json n7k_kpis.json\n"
     "\n"
     "# List available KPIs\n"
     "poetry run kpi-calculator --router n7k --os nxos \\\n"
     "                          --list-kpis\n"
+    "```\n"
     "\n"
-    "# Run specific KPIs only\n"
-    "poetry run kpi-calculator --router n7k --os nxos \\\n"
-    "                          --kpis total_routes total_vrfs\n"
+    "## Verbosity Levels\n"
     "\n"
-    "# IOS-XE example\n"
-    "poetry run kpi-calculator --router cat9k --os iosxe \\\n"
-    "                          --kpis total_routes total_mac_addresses\n"
+    "```\n"
+    "0 = silent   No console output\n"
+    "1 = minimal  One line per KPI: name + value\n"
+    "2 = normal   Condensed output (default)\n"
+    "3 = verbose  Full output with breakdown\n"
+    "```\n"
     "\n"
-    "# IOS-XR example\n"
-    "poetry run kpi-calculator --router asr9k --os iosxr \\\n"
-    "                          --kpis total_routes total_bgp_neighbors\n"
+    "## JSON Output Format\n"
     "\n"
-    "# Custom input directory\n"
-    "poetry run kpi-calculator --router n7k --os nxos \\\n"
-    "                          --input-dir /path/to/files\n"
+    "```json\n"
+    "{\n"
+    "  \"router\": \"n7k\",\n"
+    "  \"os\": \"nxos\",\n"
+    "  \"timestamp\": \"2026-04-07T10:22:01\",\n"
+    "  \"kpis\": {\n"
+    "    \"total_routes\": {\n"
+    "      \"description\": \"Total number of IP routes\",\n"
+    "      \"value\": 47,\n"
+    "      \"status\": \"ok\",\n"
+    "      \"operation\": \"sum\"\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
     "```\n"
     "\n"
     "## Input File Convention\n"
@@ -1595,18 +1871,15 @@ README_MD = (
     "\n"
     "Default input_dir: input_files/\n"
     "\n"
-    "NX-OS examples:\n"
+    "NX-OS examples (n7k):\n"
     "  input_files/n7k__show_ip_route_summary.txt\n"
     "  input_files/n7k__show_mac_address-table.txt\n"
-    "  input_files/n7k__show_bgp_summary.txt\n"
     "\n"
-    "IOS-XE examples:\n"
+    "IOS-XE examples (cat9k):\n"
     "  input_files/cat9k__show_ip_route_summary.txt\n"
-    "  input_files/cat9k__show_mac_address-table.txt\n"
     "\n"
-    "IOS-XR examples:\n"
+    "IOS-XR examples (asr9k):\n"
     "  input_files/asr9k__show_route_summary.txt\n"
-    "  input_files/asr9k__show_bgp_summary.txt\n"
     "```\n"
     "\n"
     "## Adding New KPIs\n"
@@ -1649,6 +1922,10 @@ htmlcov/
 # Input files -- excluded from git
 # Remove this line to commit sample input files
 input_files/*.txt
+
+# JSON output files -- excluded from git
+# Remove this line to commit output files
+*.json
 """
 
 
@@ -1696,12 +1973,13 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "---\n"
     "\n"
-    "## Example Router Names Used in Documentation\n"
+    "## Generic Router Names\n"
     "\n"
-    "Generic names used throughout -- replace with actual router names:\n"
-    "  n7k    -- generic NX-OS device (e.g. Nexus 7000)\n"
-    "  cat9k  -- generic IOS-XE device (e.g. Catalyst 9000)\n"
-    "  asr9k  -- generic IOS-XR device (e.g. ASR 9000)\n"
+    "Always use these generic names in code and documentation:\n"
+    "  n7k    -- NX-OS  (e.g. Nexus 7000)\n"
+    "  cat9k  -- IOS-XE (e.g. Catalyst 9000)\n"
+    "  asr9k  -- IOS-XR (e.g. ASR 9000)\n"
+    "Never use private or customer-specific names.\n"
     "\n"
     "---\n"
     "\n"
@@ -1731,12 +2009,43 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "## CLI Arguments\n"
     "\n"
-    "  --router      Router name (required)\n"
-    "  --os          OS type: nxos | iosxe | iosxr (required)\n"
-    "  --kpis        Space-separated KPI names (optional, default: all)\n"
-    "  --list-kpis   List available KPIs and exit\n"
-    "  --input-dir   Input files directory (default: input_files)\n"
-    "  --models      KPI models YAML file (default: kpi_models.yaml)\n"
+    "  --router        Router name (required)\n"
+    "  --os            OS type: nxos | iosxe | iosxr (required)\n"
+    "  --kpis          Space-separated KPI names (optional, default: all)\n"
+    "  --list-kpis     List available KPIs and exit\n"
+    "  --input-dir     Input files directory (default: input_files)\n"
+    "  --models        KPI models YAML file (default: kpi_models.yaml)\n"
+    "  --verbosity     0=silent 1=minimal 2=normal 3=verbose (default: 2)\n"
+    "  --output-json   Write results to JSON file\n"
+    "\n"
+    "---\n"
+    "\n"
+    "## Verbosity Levels\n"
+    "\n"
+    "  0 = silent   No console output\n"
+    "  1 = minimal  One line per KPI: name + value\n"
+    "  2 = normal   Condensed output (default)\n"
+    "  3 = verbose  Full output with breakdown\n"
+    "\n"
+    "---\n"
+    "\n"
+    "## JSON Output Structure\n"
+    "\n"
+    "```json\n"
+    "{\n"
+    "  \"router\": \"<name>\",\n"
+    "  \"os\": \"<os_type>\",\n"
+    "  \"timestamp\": \"<ISO 8601>\",\n"
+    "  \"kpis\": {\n"
+    "    \"<kpi_name>\": {\n"
+    "      \"description\": \"<str>\",\n"
+    "      \"value\": <int>,\n"
+    "      \"status\": \"ok|warning|error\",\n"
+    "      \"operation\": \"<str>\"\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
+    "```\n"
     "\n"
     "---\n"
     "\n"
@@ -1811,8 +2120,7 @@ AI_SESSION_GUIDE_MD = (
     "10. Use forward slashes in FILES keys\n"
     "11. Update feature_description each session\n"
     "12. Always include push=True, remote='origin', branch='main'\n"
-    "13. Never use private or customer-specific names anywhere\n"
-    "    Use generic names: n7k, cat9k, asr9k\n"
+    "13. Never use private names -- use n7k, cat9k, asr9k\n"
     "\n"
     "---\n"
     "\n"
@@ -1840,9 +2148,10 @@ AI_SESSION_GUIDE_MD = (
     "Input files: input_files/<router>__<command>.txt\n"
     "Genie NX-OS: PARSE_PARAMS=['output','text']\n"
     "             show_fdb.ShowMacAddressTable for MAC KPI\n"
-    "CLI args: --router --os --kpis --list-kpis\n"
-    "          --input-dir --models\n"
-    "Generic router names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)\n"
+    "CLI: --router --os --kpis --list-kpis --input-dir\n"
+    "     --models --verbosity (0-3) --output-json\n"
+    "JSON output: router, os, timestamp, kpis{}\n"
+    "Generic names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)\n"
     "pyproject.toml: packages=[{include='kpi_calculator.py'}]\n"
     "PyATS: Linux/macOS/WSL2 only\n"
     "Bootstrap venv: ~/.bootstrap-venv\n"
@@ -1865,6 +2174,7 @@ AI_SESSION_GUIDE_MD = (
     "| 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |\n"
     "| 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|\n"
     "| 0.1.7   | 2026-04-07 | Fix -- replace private names with generic n7k     |\n"
+    "| 0.1.8   | 2026-04-07 | Add -- verbosity levels and JSON output           |\n"
 )
 
 
@@ -1877,8 +2187,7 @@ BOOTSTRAP_TEMPLATE_PY = """
 #   2. Apply requested changes to relevant FILE variables
 #   3. Update feature_description
 #   4. Return complete updated bootstrap_project.py
-#   5. Use only generic router names: n7k, cat9k, asr9k
-#      Never use private or customer-specific names
+#   5. Use only generic names: n7k, cat9k, asr9k
 
 from ai_bootstrap import Bootstrap
 
@@ -1951,7 +2260,7 @@ FILES = {
 
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
-        feature_description = "replace private names with generic n7k",
+        feature_description = "add verbosity levels and JSON output",
         files               = FILES,
         push                = True,
         remote              = "origin",
