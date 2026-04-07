@@ -6,13 +6,8 @@
 #   2. Apply requested changes to relevant FILE variables
 #   3. Update feature_description
 #   4. Return complete updated bootstrap_project.py
-#
-# INSTRUCTIONS FOR HUMAN:
-#   1. Replace bootstrap_project.py with version from AI
-#   2. ~/.bootstrap-venv/bin/python bootstrap_project.py
-#   3. poetry install  (if pyproject.toml changed)
-#   4. poetry run pytest
-#   5. git log --oneline
+#   5. Use only generic router names: n7k, cat9k, asr9k
+#      Never use private or customer-specific names
 
 from ai_bootstrap import Bootstrap
 

@@ -41,6 +41,15 @@ Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.
 
 ---
 
+## Example Router Names Used in Documentation
+
+Generic names used throughout -- replace with actual router names:
+  n7k    -- generic NX-OS device (e.g. Nexus 7000)
+  cat9k  -- generic IOS-XE device (e.g. Catalyst 9000)
+  asr9k  -- generic IOS-XR device (e.g. ASR 9000)
+
+---
+
 ## Genie Parser Notes
 
 NX-OS parsers use output= not text= for offline parsing.
@@ -80,7 +89,7 @@ Run bootstrap:
 
 Default location: input_files/ directory
 Convention: <router_name>__<show_command_underscored>.txt
-Example: input_files/LaMSC1DC01__show_ip_route_summary.txt
+Example: input_files/n7k__show_ip_route_summary.txt
 
 File encoding: utf-8 preferred.
 Engine also handles cp1252 and latin-1 automatically.
@@ -147,6 +156,8 @@ total_bfd_sessions_down -- count of BFD sessions Down
 10. Use forward slashes in FILES keys
 11. Update feature_description each session
 12. Always include push=True, remote='origin', branch='main'
+13. Never use private or customer-specific names anywhere
+    Use generic names: n7k, cat9k, asr9k
 
 ---
 
@@ -176,6 +187,7 @@ Genie NX-OS: PARSE_PARAMS=['output','text']
              show_fdb.ShowMacAddressTable for MAC KPI
 CLI args: --router --os --kpis --list-kpis
           --input-dir --models
+Generic router names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)
 pyproject.toml: packages=[{include='kpi_calculator.py'}]
 PyATS: Linux/macOS/WSL2 only
 Bootstrap venv: ~/.bootstrap-venv
@@ -197,3 +209,4 @@ Please provide updated bootstrap_project.py with:
 | 0.1.4   | 2026-04-07 | Fix -- use output= param, add encoding handling   |
 | 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |
 | 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|
+| 0.1.7   | 2026-04-07 | Fix -- replace private names with generic n7k     |

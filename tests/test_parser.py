@@ -12,40 +12,39 @@ from kpi_calculator import (
 
 
 def test_derive_filename_basic():
-    result = derive_filename(
-        "LaMSC1DC01", "show ip route summary"
-    )
-    assert result ==         "input_files/LaMSC1DC01__show_ip_route_summary.txt"
+    result = derive_filename("n7k", "show ip route summary")
+    assert result == "input_files/n7k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_input_dir():
     result = derive_filename(
-        "LaMSC1DC01", "show ip route summary",
+        "n7k", "show ip route summary",
         input_dir="/data/captures"
     )
-    assert result ==         "/data/captures/LaMSC1DC01__show_ip_route_summary.txt"
+    assert result ==         "/data/captures/n7k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_with_hyphen():
-    result = derive_filename(
-        "core-sw-01", "show mac address-table"
-    )
-    assert result ==         "input_files/core-sw-01__show_mac_address-table.txt"
+    result = derive_filename("n7k", "show mac address-table")
+    assert result ==         "input_files/n7k__show_mac_address-table.txt"
 
 
 def test_derive_filename_iosxr_command():
-    result = derive_filename(
-        "pe-router-01", "show route summary"
-    )
-    assert result ==         "input_files/pe-router-01__show_route_summary.txt"
+    result = derive_filename("asr9k", "show route summary")
+    assert result ==         "input_files/asr9k__show_route_summary.txt"
+
+
+def test_derive_filename_iosxe_router():
+    result = derive_filename("cat9k", "show ip route summary")
+    assert result ==         "input_files/cat9k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_extension():
     result = derive_filename(
-        "LaMSC1DC01", "show ip route summary",
+        "n7k", "show ip route summary",
         extension="log"
     )
-    assert result ==         "input_files/LaMSC1DC01__show_ip_route_summary.log"
+    assert result == "input_files/n7k__show_ip_route_summary.log"
 
 
 def test_resolve_valid_parser_class():
@@ -57,7 +56,6 @@ def test_resolve_valid_parser_class():
 
 
 def test_resolve_correct_mac_parser():
-    """Verify correct MAC parser module is show_fdb not show_l2route."""
     cls = resolve_parser_class(
         "genie.libs.parser.nxos.show_fdb",
         "ShowMacAddressTable"

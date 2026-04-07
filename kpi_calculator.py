@@ -127,14 +127,14 @@ def parse_arguments() -> argparse.Namespace:
 
     Examples:
       # Run all KPIs
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
 
       # List available KPIs
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
           --list-kpis
 
       # Run specific KPIs only
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
           --kpis total_routes total_vrfs
     """
     parser = argparse.ArgumentParser(
@@ -322,6 +322,10 @@ def derive_filename(router_name: str,
 
     Convention:
       <input_dir>/<router_name>__<show_command_underscored>.<ext>
+
+    Examples:
+      router="n7k", cmd="show ip route summary"
+        -> "input_files/n7k__show_ip_route_summary.txt"
     """
     command_part = show_command.lower().replace(" ", "_")
     filename     = f"{router_name}__{command_part}.{extension}"
