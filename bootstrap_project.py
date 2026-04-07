@@ -4,7 +4,6 @@
 # PURPOSE : Creates all source files for pyats-kpi-calculator
 # USAGE   : ~/.bootstrap-venv/bin/python bootstrap_project.py
 # NOTE    : Run from inside pyats-kpi-calculator/ directory
-#           Requires ai-bootstrap >= 0.2.0 in bootstrap venv
 
 from ai_bootstrap import Bootstrap
 
@@ -16,7 +15,7 @@ from ai_bootstrap import Bootstrap
 PYPROJECT_TOML = """
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.3"
+version     = "0.1.4"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
@@ -97,6 +96,11 @@ VALID_OPERATIONS  = ["sum", "count", "max", "min", "avg", "sum_lengths"]
 SUPPORTED_OS      = ["nxos", "iosxe", "iosxr"]
 KPI_MODELS_FILE   = "kpi_models.yaml"
 DEFAULT_INPUT_DIR = "input_files"
+
+# Genie parser parameter names to try in order
+# output= works with NX-OS parsers in current Genie version
+# text= is tried as fallback for other versions
+PARSE_PARAMS = ["output", "text"]
 
 
 # ---------------------------------------------------------------
@@ -235,8 +239,7 @@ def parse_arguments() -> argparse.Namespace:
 
 def validate_kpi_models(models: dict) -> bool:
     \"\"\"
-    Validates all KPI model entries individually, reporting
-    a descriptive error for each failing KPI.
+    Validates all KPI model entries individually.
     Returns True if all models are valid, False otherwise.
     \"\"\"
     all_valid = True
@@ -382,19 +385,95 @@ def create_device(router_name: str, os_type: str) -> Device:
 # ---------------------------------------------------------------
 
 def read_input_file(filepath: str) -> str:
-    try:
-        with open(filepath, "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"[ERROR] File not found: '{filepath}'")
-        print(f"        Expected convention: "
-              f"<input_dir>/<router>__<show_command>.txt")
-        print(f"        Check --input-dir argument "
-              f"(default: {DEFAULT_INPUT_DIR})")
-        sys.exit(1)
-    except IOError as e:
-        print(f"[ERROR] Could not read file '{filepath}': {e}")
-        sys.exit(1)
+    \"\"\"
+    Reads raw CLI output from file.
+    Tries multiple encodings to handle files captured
+    from different platforms and tools.
+
+    Encoding priority:
+      utf-8   — standard Linux/Mac captured output
+      cp1252  — Windows terminal captured output
+      latin-1 — fallback for Western European characters
+    \"\"\"
+    encodings = ["utf-8", "cp1252", "latin-1"]
+
+    for encoding in encodings:
+        try:
+            with open(filepath, "r", encoding=encoding) as f:
+                content = f.read()
+            if encoding != "utf-8":
+                print(f"[INFO] File '{filepath}' read "
+                      f"using encoding: {encoding}")
+            return content
+        except UnicodeDecodeError:
+            continue
+        except FileNotFoundError:
+            print(f"[ERROR] File not found: '{filepath}'")
+            print(f"        Expected convention: "
+                  f"<input_dir>/<router>__<show_command>.txt")
+            print(f"        Check --input-dir argument "
+                  f"(default: {DEFAULT_INPUT_DIR})")
+            sys.exit(1)
+        except IOError as e:
+            print(f"[ERROR] Could not read file '{filepath}': {e}")
+            sys.exit(1)
+
+    print(f"[ERROR] Could not decode '{filepath}' "
+          f"with any supported encoding: {encodings}")
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------
+# Genie Parser — Try Multiple Parameter Names
+# ---------------------------------------------------------------
+
+def _try_parse(parser_class,
+               device,
+               raw_output: str,
+               show_command: str) -> dict:
+    \"\"\"
+    Attempts offline parsing trying parameter names in the
+    order defined by PARSE_PARAMS constant.
+
+    Background:
+      Different Genie versions and different parser classes
+      use different parameter names for offline text input:
+        output= — used by NX-OS parsers in current Genie
+        text=   — used by some IOS-XE/IOS-XR parsers
+
+    The PARSE_PARAMS constant defines the order to try:
+      ["output", "text"]
+
+    This ensures NX-OS parsers work correctly while
+    still supporting other OS parsers.
+    \"\"\"
+    parser = parser_class(device=device)
+    errors = []
+
+    for param_name in PARSE_PARAMS:
+        try:
+            result = parser.parse(**{param_name: raw_output})
+            print(f"[INFO] Parsed using {param_name}= parameter")
+            return result
+        except TypeError as e:
+            errors.append(f"{param_name}= : {e}")
+            continue
+        except Exception as e:
+            # Non-TypeError means parser found the param but
+            # had a content error — report immediately
+            print(f"[ERROR] Parsing failed for '{show_command}': {e}")
+            print(f"        Parser  : {parser_class.__name__}")
+            print(f"        Param   : {param_name}=")
+            sys.exit(1)
+
+    # All parameter names failed
+    print(f"[ERROR] Could not find working parse parameter "
+          f"for '{show_command}'")
+    print(f"        Parser : {parser_class.__name__}")
+    print(f"        Tried  : {PARSE_PARAMS}")
+    for err in errors:
+        print(f"        {err}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------
@@ -442,14 +521,11 @@ def parse_output(model: dict,
     device         = create_device(router_name, os_type)
     raw_output     = read_input_file(input_file)
 
-    try:
-        parser = resolved_class(device=device)
-        parsed = parser.parse(text=raw_output)
-        parse_cache[input_file] = parsed
-        return parsed
-    except Exception as e:
-        print(f"[ERROR] Parsing failed for '{show_command}': {e}")
-        sys.exit(1)
+    parsed = _try_parse(
+        resolved_class, device, raw_output, show_command
+    )
+    parse_cache[input_file] = parsed
+    return parsed
 
 
 # ---------------------------------------------------------------
@@ -1188,7 +1264,13 @@ TEST_PARSER_PY = """
 # Generated by CircuIT — do not edit manually
 
 import pytest
-from kpi_calculator import derive_filename, resolve_parser_class
+from unittest.mock import MagicMock, patch
+from kpi_calculator import (
+    derive_filename,
+    resolve_parser_class,
+    _try_parse,
+    PARSE_PARAMS
+)
 
 
 def test_derive_filename_basic():
@@ -1203,14 +1285,16 @@ def test_derive_filename_custom_input_dir():
         "LaMSC1DC01", "show ip route summary",
         input_dir="/data/captures"
     )
-    assert result == "/data/captures/LaMSC1DC01__show_ip_route_summary.txt"
+    assert result == \
+        "/data/captures/LaMSC1DC01__show_ip_route_summary.txt"
 
 
 def test_derive_filename_with_hyphen():
     result = derive_filename(
         "core-sw-01", "show mac address-table"
     )
-    assert result == "input_files/core-sw-01__show_mac_address-table.txt"
+    assert result == \
+        "input_files/core-sw-01__show_mac_address-table.txt"
 
 
 def test_derive_filename_iosxr_command():
@@ -1250,6 +1334,64 @@ def test_resolve_invalid_class():
             "genie.libs.parser.nxos.show_routing",
             "NonExistentClass"
         )
+
+
+def test_parse_params_order():
+    \"\"\"output= should be tried before text= for NX-OS compatibility.\"\"\"
+    assert PARSE_PARAMS[0] == "output"
+    assert PARSE_PARAMS[1] == "text"
+
+
+def test_try_parse_uses_output_param():
+    \"\"\"
+    Verify _try_parse tries output= first and returns
+    result on success.
+    \"\"\"
+    mock_device = MagicMock()
+    mock_result = {"vrf": {"default": {"total_routes": 47}}}
+
+    mock_parser_instance = MagicMock()
+    mock_parser_instance.parse.return_value = mock_result
+
+    mock_parser_class = MagicMock(return_value=mock_parser_instance)
+
+    result = _try_parse(
+        mock_parser_class,
+        mock_device,
+        "raw output text",
+        "show ip route summary"
+    )
+
+    assert result == mock_result
+    mock_parser_instance.parse.assert_called_once_with(
+        output="raw output text"
+    )
+
+
+def test_try_parse_falls_back_to_text_param():
+    \"\"\"
+    Verify _try_parse falls back to text= when output= raises TypeError.
+    \"\"\"
+    mock_device = MagicMock()
+    mock_result = {"vrf": {"default": {"total_routes": 47}}}
+
+    mock_parser_instance = MagicMock()
+    mock_parser_instance.parse.side_effect = [
+        TypeError("unexpected keyword argument 'output'"),
+        mock_result
+    ]
+
+    mock_parser_class = MagicMock(return_value=mock_parser_instance)
+
+    result = _try_parse(
+        mock_parser_class,
+        mock_device,
+        "raw output text",
+        "show ip route summary"
+    )
+
+    assert result == mock_result
+    assert mock_parser_instance.parse.call_count == 2
 """
 
 
@@ -1376,6 +1518,14 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "---\n"
     "\n"
+    "## Genie Parser Parameter Note\n"
+    "\n"
+    "NX-OS Genie parsers use output= not text= for offline parsing.\n"
+    "The engine tries PARSE_PARAMS = ['output', 'text'] in order.\n"
+    "output= is tried first for NX-OS compatibility.\n"
+    "\n"
+    "---\n"
+    "\n"
     "## Bootstrap Setup\n"
     "\n"
     "ai-bootstrap installed in dedicated venv:\n"
@@ -1392,17 +1542,6 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "bootstrap_project.py uses push=True to automatically\n"
     "push to GitHub after each bootstrap run.\n"
-    "Remote must be configured:\n"
-    "  git remote add origin <url>\n"
-    "\n"
-    "bootstrap_project.py entry point:\n"
-    "  Bootstrap(project_path='.').run(\n"
-    "      feature_description = '<desc>',\n"
-    "      files               = FILES,\n"
-    "      push                = True,\n"
-    "      remote              = 'origin',\n"
-    "      branch              = 'main'\n"
-    "  )\n"
     "\n"
     "---\n"
     "\n"
@@ -1419,6 +1558,9 @@ AI_SESSION_GUIDE_MD = (
     "Default location: input_files/ directory\n"
     "Convention: <router_name>__<show_command_underscored>.txt\n"
     "Example: input_files/LaMSC1DC01__show_ip_route_summary.txt\n"
+    "\n"
+    "File encoding: utf-8 preferred.\n"
+    "Engine also handles cp1252 and latin-1 automatically.\n"
     "\n"
     "Custom directory via CLI:\n"
     "  --input-dir /path/to/files\n"
@@ -1510,7 +1652,8 @@ AI_SESSION_GUIDE_MD = (
     "Supported OS: nxos, iosxe, iosxr\n"
     "Operations: sum, count, max, min, avg, sum_lengths\n"
     "Input files: input_files/<router>__<command>.txt\n"
-    "Custom dir:  --input-dir /path/to/files\n"
+    "Genie parsers: use output= param (not text=)\n"
+    "               PARSE_PARAMS = ['output', 'text']\n"
     "pyproject.toml: packages=[{include='kpi_calculator.py'}]\n"
     "PyATS: Linux/macOS/WSL2 only\n"
     "Bootstrap venv: ~/.bootstrap-venv\n"
@@ -1529,6 +1672,7 @@ AI_SESSION_GUIDE_MD = (
     "| 0.1.1   | 2026-04-06 | Fix — add packages directive to pyproject.toml    |\n"
     "| 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |\n"
     "| 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |\n"
+    "| 0.1.4   | 2026-04-07 | Fix — use output= param, add encoding handling    |\n"
 )
 
 
@@ -1620,7 +1764,7 @@ FILES = {
 
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
-        feature_description = "add GitHub push via ai-bootstrap 0.2.0",
+        feature_description = "fix output= param and add encoding handling",
         files               = FILES,
         push                = True,
         remote              = "origin",
