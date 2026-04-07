@@ -15,7 +15,7 @@ from ai_bootstrap import Bootstrap
 PYPROJECT_TOML = """
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.6"
+version     = "0.1.7"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
@@ -204,14 +204,14 @@ def parse_arguments() -> argparse.Namespace:
 
     Examples:
       # Run all KPIs
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
 
       # List available KPIs
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
           --list-kpis
 
       # Run specific KPIs only
-      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+      python kpi_calculator.py --router n7k --os nxos
           --kpis total_routes total_vrfs
     \"\"\"
     parser = argparse.ArgumentParser(
@@ -399,6 +399,10 @@ def derive_filename(router_name: str,
 
     Convention:
       <input_dir>/<router_name>__<show_command_underscored>.<ext>
+
+    Examples:
+      router="n7k", cmd="show ip route summary"
+        -> "input_files/n7k__show_ip_route_summary.txt"
     \"\"\"
     command_part = show_command.lower().replace(" ", "_")
     filename     = f"{router_name}__{command_part}.{extension}"
@@ -1427,45 +1431,43 @@ from kpi_calculator import (
 
 
 def test_derive_filename_basic():
-    result = derive_filename(
-        "LaMSC1DC01", "show ip route summary"
-    )
-    assert result == \
-        "input_files/LaMSC1DC01__show_ip_route_summary.txt"
+    result = derive_filename("n7k", "show ip route summary")
+    assert result == "input_files/n7k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_input_dir():
     result = derive_filename(
-        "LaMSC1DC01", "show ip route summary",
+        "n7k", "show ip route summary",
         input_dir="/data/captures"
     )
     assert result == \
-        "/data/captures/LaMSC1DC01__show_ip_route_summary.txt"
+        "/data/captures/n7k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_with_hyphen():
-    result = derive_filename(
-        "core-sw-01", "show mac address-table"
-    )
+    result = derive_filename("n7k", "show mac address-table")
     assert result == \
-        "input_files/core-sw-01__show_mac_address-table.txt"
+        "input_files/n7k__show_mac_address-table.txt"
 
 
 def test_derive_filename_iosxr_command():
-    result = derive_filename(
-        "pe-router-01", "show route summary"
-    )
+    result = derive_filename("asr9k", "show route summary")
     assert result == \
-        "input_files/pe-router-01__show_route_summary.txt"
+        "input_files/asr9k__show_route_summary.txt"
+
+
+def test_derive_filename_iosxe_router():
+    result = derive_filename("cat9k", "show ip route summary")
+    assert result == \
+        "input_files/cat9k__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_extension():
     result = derive_filename(
-        "LaMSC1DC01", "show ip route summary",
+        "n7k", "show ip route summary",
         extension="log"
     )
-    assert result == \
-        "input_files/LaMSC1DC01__show_ip_route_summary.log"
+    assert result == "input_files/n7k__show_ip_route_summary.log"
 
 
 def test_resolve_valid_parser_class():
@@ -1477,7 +1479,6 @@ def test_resolve_valid_parser_class():
 
 
 def test_resolve_correct_mac_parser():
-    \"\"\"Verify correct MAC parser module is show_fdb not show_l2route.\"\"\"
     cls = resolve_parser_class(
         "genie.libs.parser.nxos.show_fdb",
         "ShowMacAddressTable"
@@ -1564,19 +1565,26 @@ README_MD = (
     "\n"
     "```bash\n"
     "# Run all KPIs\n"
-    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos\n"
+    "poetry run kpi-calculator --router n7k --os nxos\n"
     "\n"
     "# List available KPIs\n"
-    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
     "                          --list-kpis\n"
     "\n"
     "# Run specific KPIs only\n"
-    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
     "                          --kpis total_routes total_vrfs\n"
     "\n"
-    "# Run with custom input directory\n"
-    "poetry run kpi-calculator --router LaMSC1DC01 --os nxos \\\n"
-    "                          --kpis total_mac_addresses \\\n"
+    "# IOS-XE example\n"
+    "poetry run kpi-calculator --router cat9k --os iosxe \\\n"
+    "                          --kpis total_routes total_mac_addresses\n"
+    "\n"
+    "# IOS-XR example\n"
+    "poetry run kpi-calculator --router asr9k --os iosxr \\\n"
+    "                          --kpis total_routes total_bgp_neighbors\n"
+    "\n"
+    "# Custom input directory\n"
+    "poetry run kpi-calculator --router n7k --os nxos \\\n"
     "                          --input-dir /path/to/files\n"
     "```\n"
     "\n"
@@ -1587,10 +1595,18 @@ README_MD = (
     "\n"
     "Default input_dir: input_files/\n"
     "\n"
-    "Examples:\n"
-    "  input_files/LaMSC1DC01__show_ip_route_summary.txt\n"
-    "  input_files/LaMSC1DC01__show_mac_address-table.txt\n"
-    "  input_files/LaMSC1DC01__show_bgp_summary.txt\n"
+    "NX-OS examples:\n"
+    "  input_files/n7k__show_ip_route_summary.txt\n"
+    "  input_files/n7k__show_mac_address-table.txt\n"
+    "  input_files/n7k__show_bgp_summary.txt\n"
+    "\n"
+    "IOS-XE examples:\n"
+    "  input_files/cat9k__show_ip_route_summary.txt\n"
+    "  input_files/cat9k__show_mac_address-table.txt\n"
+    "\n"
+    "IOS-XR examples:\n"
+    "  input_files/asr9k__show_route_summary.txt\n"
+    "  input_files/asr9k__show_bgp_summary.txt\n"
     "```\n"
     "\n"
     "## Adding New KPIs\n"
@@ -1680,6 +1696,15 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "---\n"
     "\n"
+    "## Example Router Names Used in Documentation\n"
+    "\n"
+    "Generic names used throughout -- replace with actual router names:\n"
+    "  n7k    -- generic NX-OS device (e.g. Nexus 7000)\n"
+    "  cat9k  -- generic IOS-XE device (e.g. Catalyst 9000)\n"
+    "  asr9k  -- generic IOS-XR device (e.g. ASR 9000)\n"
+    "\n"
+    "---\n"
+    "\n"
     "## Genie Parser Notes\n"
     "\n"
     "NX-OS parsers use output= not text= for offline parsing.\n"
@@ -1719,7 +1744,7 @@ AI_SESSION_GUIDE_MD = (
     "\n"
     "Default location: input_files/ directory\n"
     "Convention: <router_name>__<show_command_underscored>.txt\n"
-    "Example: input_files/LaMSC1DC01__show_ip_route_summary.txt\n"
+    "Example: input_files/n7k__show_ip_route_summary.txt\n"
     "\n"
     "File encoding: utf-8 preferred.\n"
     "Engine also handles cp1252 and latin-1 automatically.\n"
@@ -1786,6 +1811,8 @@ AI_SESSION_GUIDE_MD = (
     "10. Use forward slashes in FILES keys\n"
     "11. Update feature_description each session\n"
     "12. Always include push=True, remote='origin', branch='main'\n"
+    "13. Never use private or customer-specific names anywhere\n"
+    "    Use generic names: n7k, cat9k, asr9k\n"
     "\n"
     "---\n"
     "\n"
@@ -1815,6 +1842,7 @@ AI_SESSION_GUIDE_MD = (
     "             show_fdb.ShowMacAddressTable for MAC KPI\n"
     "CLI args: --router --os --kpis --list-kpis\n"
     "          --input-dir --models\n"
+    "Generic router names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)\n"
     "pyproject.toml: packages=[{include='kpi_calculator.py'}]\n"
     "PyATS: Linux/macOS/WSL2 only\n"
     "Bootstrap venv: ~/.bootstrap-venv\n"
@@ -1836,6 +1864,7 @@ AI_SESSION_GUIDE_MD = (
     "| 0.1.4   | 2026-04-07 | Fix -- use output= param, add encoding handling   |\n"
     "| 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |\n"
     "| 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|\n"
+    "| 0.1.7   | 2026-04-07 | Fix -- replace private names with generic n7k     |\n"
 )
 
 
@@ -1848,13 +1877,8 @@ BOOTSTRAP_TEMPLATE_PY = """
 #   2. Apply requested changes to relevant FILE variables
 #   3. Update feature_description
 #   4. Return complete updated bootstrap_project.py
-#
-# INSTRUCTIONS FOR HUMAN:
-#   1. Replace bootstrap_project.py with version from AI
-#   2. ~/.bootstrap-venv/bin/python bootstrap_project.py
-#   3. poetry install  (if pyproject.toml changed)
-#   4. poetry run pytest
-#   5. git log --oneline
+#   5. Use only generic router names: n7k, cat9k, asr9k
+#      Never use private or customer-specific names
 
 from ai_bootstrap import Bootstrap
 
@@ -1927,7 +1951,7 @@ FILES = {
 
 if __name__ == "__main__":
     Bootstrap(project_path=".").run(
-        feature_description = "fix MAC parser module to show_fdb",
+        feature_description = "replace private names with generic n7k",
         files               = FILES,
         push                = True,
         remote              = "origin",
