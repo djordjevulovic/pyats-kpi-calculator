@@ -12,11 +12,20 @@ poetry install
 ## Usage
 
 ```bash
-# Default input_files/ directory
+# Run all KPIs
 poetry run kpi-calculator --router LaMSC1DC01 --os nxos
 
-# Custom input directory
+# List available KPIs
 poetry run kpi-calculator --router LaMSC1DC01 --os nxos \
+                          --list-kpis
+
+# Run specific KPIs only
+poetry run kpi-calculator --router LaMSC1DC01 --os nxos \
+                          --kpis total_routes total_vrfs
+
+# Run with custom input directory
+poetry run kpi-calculator --router LaMSC1DC01 --os nxos \
+                          --kpis total_routes \
                           --input-dir /path/to/files
 ```
 

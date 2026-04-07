@@ -119,15 +119,27 @@ def parse_arguments() -> argparse.Namespace:
     Parses CLI arguments.
 
     Usage:
-      python kpi_calculator.py --router <router_name> --os <os_type>
+      python kpi_calculator.py --router <name> --os <os_type>
+                               [--kpis KPI1 KPI2 ...]
+                               [--input-dir <dir>]
+                               [--models <file>]
 
     Examples:
+      # Run all KPIs
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
+
+      # Run specific KPIs only
       python kpi_calculator.py --router LaMSC1DC01 --os nxos
-                               --input-dir /path/to/files
+          --kpis total_routes total_vrfs
+
+      # Run single KPI with custom input dir
+      python kpi_calculator.py --router LaMSC1DC01 --os nxos
+          --kpis total_routes
+          --input-dir /data/captures
     """
     parser = argparse.ArgumentParser(
-        description="PyATS Offline KPI Calculator"
+        description="PyATS Offline KPI Calculator",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "--router",
@@ -152,6 +164,25 @@ def parse_arguments() -> argparse.Namespace:
         dest="input_dir",
         help=f"Directory containing show command output files. "
              f"Default: {DEFAULT_INPUT_DIR}"
+    )
+    parser.add_argument(
+        "--kpis",
+        nargs="+",
+        default=None,
+        metavar="KPI_NAME",
+        help=(
+            "Space-separated list of KPI names to calculate. "
+            "If not specified all KPIs in the models file "
+            "are calculated. "
+            "Example: --kpis total_routes total_vrfs"
+        )
+    )
+    parser.add_argument(
+        "--list-kpis",
+        action="store_true",
+        default=False,
+        dest="list_kpis",
+        help="List all available KPI names from models file and exit."
     )
     return parser.parse_args()
 
@@ -209,6 +240,67 @@ def load_kpi_models(filepath: str) -> dict:
     print(f"[INFO] Schema validation passed — "
           f"{len(models)} KPI models loaded.\n")
     return models
+
+
+# ---------------------------------------------------------------
+# KPI Selection
+# ---------------------------------------------------------------
+
+def select_kpis(kpi_models: dict,
+                requested:  list | None) -> dict:
+    """
+    Filters KPI models to only the requested KPIs.
+    If requested is None returns all KPIs unchanged.
+
+    Validates that all requested KPI names exist in the
+    models file and exits with a helpful error if any
+    are not found — listing available KPI names.
+
+    Args:
+        kpi_models: Full dict of all loaded KPI models
+        requested:  List of requested KPI names or None
+
+    Returns:
+        Filtered dict containing only requested KPIs
+    """
+    # No filter requested — return all
+    if requested is None:
+        return kpi_models
+
+    # Validate all requested KPIs exist
+    available  = set(kpi_models.keys())
+    requested_set = set(requested)
+    not_found  = requested_set - available
+
+    if not_found:
+        print(f"\n[ERROR] Unknown KPI name(s): "
+              f"{sorted(not_found)}")
+        print(f"\n  Available KPIs in '{KPI_MODELS_FILE}':")
+        for name in sorted(available):
+            desc = kpi_models[name].get("description", "")
+            print(f"    {name:<30} — {desc}")
+        print()
+        sys.exit(1)
+
+    # Return filtered dict preserving original order
+    return {
+        name: model
+        for name, model in kpi_models.items()
+        if name in requested_set
+    }
+
+
+def list_kpis(kpi_models: dict) -> None:
+    """
+    Prints all available KPI names and descriptions then exits.
+    """
+    print(f"\n  Available KPIs ({len(kpi_models)} total):\n")
+    print(f"  {'KPI Name':<35} Description")
+    print(f"  {'-' * 35} {'-' * 40}")
+    for name, model in kpi_models.items():
+        desc = model.get("description", "")
+        print(f"  {name:<35} {desc}")
+    print()
 
 
 # ---------------------------------------------------------------
@@ -312,11 +404,6 @@ def read_input_file(filepath: str) -> str:
     Reads raw CLI output from file.
     Tries multiple encodings to handle files captured
     from different platforms and tools.
-
-    Encoding priority:
-      utf-8   — standard Linux/Mac captured output
-      cp1252  — Windows terminal captured output
-      latin-1 — fallback for Western European characters
     """
     encodings = ["utf-8", "cp1252", "latin-1"]
 
@@ -357,18 +444,6 @@ def _try_parse(parser_class,
     """
     Attempts offline parsing trying parameter names in the
     order defined by PARSE_PARAMS constant.
-
-    Background:
-      Different Genie versions and different parser classes
-      use different parameter names for offline text input:
-        output= — used by NX-OS parsers in current Genie
-        text=   — used by some IOS-XE/IOS-XR parsers
-
-    The PARSE_PARAMS constant defines the order to try:
-      ["output", "text"]
-
-    This ensures NX-OS parsers work correctly while
-    still supporting other OS parsers.
     """
     parser = parser_class(device=device)
     errors = []
@@ -382,14 +457,11 @@ def _try_parse(parser_class,
             errors.append(f"{param_name}= : {e}")
             continue
         except Exception as e:
-            # Non-TypeError means parser found the param but
-            # had a content error — report immediately
             print(f"[ERROR] Parsing failed for '{show_command}': {e}")
             print(f"        Parser  : {parser_class.__name__}")
             print(f"        Param   : {param_name}=")
             sys.exit(1)
 
-    # All parameter names failed
     print(f"[ERROR] Could not find working parse parameter "
           f"for '{show_command}'")
     print(f"        Parser : {parser_class.__name__}")
@@ -576,7 +648,19 @@ def main():
     os_type     = args.os
     models_file = args.models
     input_dir   = args.input_dir
+    requested   = args.kpis
     parse_cache = {}
+
+    # --- Load and validate all KPI models ---
+    kpi_models = load_kpi_models(models_file)
+
+    # --- Handle --list-kpis flag ---
+    if args.list_kpis:
+        list_kpis(kpi_models)
+        sys.exit(0)
+
+    # --- Filter to requested KPIs ---
+    selected_models = select_kpis(kpi_models, requested)
 
     print(f"\n{'=' * 60}")
     print(f"  PyATS Offline KPI Calculator")
@@ -584,17 +668,19 @@ def main():
     print(f"  OS         : {os_type}")
     print(f"  Models File: {models_file}")
     print(f"  Input Dir  : {input_dir}")
+    print(f"  KPIs       : "
+          f"{'all (' + str(len(selected_models)) + ')' if requested is None else str(requested)}")
     print(f"{'=' * 60}\n")
 
+    # --- Validate input directory ---
     if not os.path.isdir(input_dir):
         print(f"[ERROR] Input directory not found: '{input_dir}'")
-        print(f"        Create it or use --input-dir to specify "
-              f"a different path.")
+        print(f"        Create it or use --input-dir "
+              f"to specify a different path.")
         sys.exit(1)
 
-    kpi_models = load_kpi_models(models_file)
-
-    for kpi_name, model in kpi_models.items():
+    # --- Calculate selected KPIs ---
+    for kpi_name, model in selected_models.items():
         parsed_output = parse_output(
             model, router_name, os_type, input_dir, parse_cache
         )

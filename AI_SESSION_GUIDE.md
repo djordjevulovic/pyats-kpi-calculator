@@ -44,8 +44,7 @@ Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.
 ## Genie Parser Parameter Note
 
 NX-OS Genie parsers use output= not text= for offline parsing.
-The engine tries PARSE_PARAMS = ['output', 'text'] in order.
-output= is tried first for NX-OS compatibility.
+Engine tries PARSE_PARAMS = ['output', 'text'] in order.
 
 ---
 
@@ -55,24 +54,20 @@ ai-bootstrap installed in dedicated venv:
   python3.11 -m venv ~/.bootstrap-venv
   ~/.bootstrap-venv/bin/pip install ~/projects/ai-bootstrap
 
-Run bootstrap from project directory:
+Run bootstrap:
   cd ~/projects/pyats-kpi-calculator
   ~/.bootstrap-venv/bin/python bootstrap_project.py
 
 ---
 
-## GitHub Integration
+## CLI Arguments
 
-bootstrap_project.py uses push=True to automatically
-push to GitHub after each bootstrap run.
-
----
-
-## pyproject.toml — Required Directives
-
-```toml
-packages = [{include = "kpi_calculator.py"}]
-```
+  --router      Router name (required)
+  --os          OS type: nxos | iosxe | iosxr (required)
+  --kpis        Space-separated KPI names (optional, default: all)
+  --list-kpis   List available KPIs and exit
+  --input-dir   Input files directory (default: input_files)
+  --models      KPI models YAML file (default: kpi_models.yaml)
 
 ---
 
@@ -84,9 +79,6 @@ Example: input_files/LaMSC1DC01__show_ip_route_summary.txt
 
 File encoding: utf-8 preferred.
 Engine also handles cp1252 and latin-1 automatically.
-
-Custom directory via CLI:
-  --input-dir /path/to/files
 
 ---
 
@@ -175,8 +167,9 @@ Key files:
 Supported OS: nxos, iosxe, iosxr
 Operations: sum, count, max, min, avg, sum_lengths
 Input files: input_files/<router>__<command>.txt
-Genie parsers: use output= param (not text=)
-               PARSE_PARAMS = ['output', 'text']
+Genie parsers: PARSE_PARAMS = ['output', 'text']
+CLI args: --router --os --kpis --list-kpis
+          --input-dir --models
 pyproject.toml: packages=[{include='kpi_calculator.py'}]
 PyATS: Linux/macOS/WSL2 only
 Bootstrap venv: ~/.bootstrap-venv
@@ -196,3 +189,4 @@ Please provide updated bootstrap_project.py with:
 | 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |
 | 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |
 | 0.1.4   | 2026-04-07 | Fix — use output= param, add encoding handling    |
+| 0.1.5   | 2026-04-07 | Add — --kpis and --list-kpis CLI arguments        |

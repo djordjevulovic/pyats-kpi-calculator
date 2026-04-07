@@ -15,7 +15,7 @@ def test_derive_filename_basic():
     result = derive_filename(
         "LaMSC1DC01", "show ip route summary"
     )
-    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.txt"
+    assert result ==         "input_files/LaMSC1DC01__show_ip_route_summary.txt"
 
 
 def test_derive_filename_custom_input_dir():
@@ -37,7 +37,7 @@ def test_derive_filename_iosxr_command():
     result = derive_filename(
         "pe-router-01", "show route summary"
     )
-    assert result == "input_files/pe-router-01__show_route_summary.txt"
+    assert result ==         "input_files/pe-router-01__show_route_summary.txt"
 
 
 def test_derive_filename_custom_extension():
@@ -45,7 +45,7 @@ def test_derive_filename_custom_extension():
         "LaMSC1DC01", "show ip route summary",
         extension="log"
     )
-    assert result == "input_files/LaMSC1DC01__show_ip_route_summary.log"
+    assert result ==         "input_files/LaMSC1DC01__show_ip_route_summary.log"
 
 
 def test_resolve_valid_parser_class():
@@ -73,23 +73,16 @@ def test_resolve_invalid_class():
 
 
 def test_parse_params_order():
-    """output= should be tried before text= for NX-OS compatibility."""
     assert PARSE_PARAMS[0] == "output"
     assert PARSE_PARAMS[1] == "text"
 
 
 def test_try_parse_uses_output_param():
-    """
-    Verify _try_parse tries output= first and returns
-    result on success.
-    """
-    mock_device = MagicMock()
-    mock_result = {"vrf": {"default": {"total_routes": 47}}}
-
+    mock_device          = MagicMock()
+    mock_result          = {"vrf": {"default": {"total_routes": 47}}}
     mock_parser_instance = MagicMock()
     mock_parser_instance.parse.return_value = mock_result
-
-    mock_parser_class = MagicMock(return_value=mock_parser_instance)
+    mock_parser_class    = MagicMock(return_value=mock_parser_instance)
 
     result = _try_parse(
         mock_parser_class,
@@ -105,18 +98,13 @@ def test_try_parse_uses_output_param():
 
 
 def test_try_parse_falls_back_to_text_param():
-    """
-    Verify _try_parse falls back to text= when output= raises TypeError.
-    """
-    mock_device = MagicMock()
-    mock_result = {"vrf": {"default": {"total_routes": 47}}}
-
+    mock_device          = MagicMock()
+    mock_result          = {"vrf": {"default": {"total_routes": 47}}}
     mock_parser_instance = MagicMock()
     mock_parser_instance.parse.side_effect = [
         TypeError("unexpected keyword argument 'output'"),
         mock_result
     ]
-
     mock_parser_class = MagicMock(return_value=mock_parser_instance)
 
     result = _try_parse(
