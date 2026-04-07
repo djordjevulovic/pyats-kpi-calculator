@@ -28,3 +28,7 @@ htmlcov/
 # Input files -- excluded from git
 # Remove this line to commit sample input files
 input_files/*.txt
+
+# JSON output files -- excluded from git
+# Remove this line to commit output files
+*.json

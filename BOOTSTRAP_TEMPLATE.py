@@ -6,8 +6,7 @@
 #   2. Apply requested changes to relevant FILE variables
 #   3. Update feature_description
 #   4. Return complete updated bootstrap_project.py
-#   5. Use only generic router names: n7k, cat9k, asr9k
-#      Never use private or customer-specific names
+#   5. Use only generic names: n7k, cat9k, asr9k
 
 from ai_bootstrap import Bootstrap
 

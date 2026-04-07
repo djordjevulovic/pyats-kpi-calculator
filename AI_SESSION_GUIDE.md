@@ -41,12 +41,13 @@ Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.
 
 ---
 
-## Example Router Names Used in Documentation
+## Generic Router Names
 
-Generic names used throughout -- replace with actual router names:
-  n7k    -- generic NX-OS device (e.g. Nexus 7000)
-  cat9k  -- generic IOS-XE device (e.g. Catalyst 9000)
-  asr9k  -- generic IOS-XR device (e.g. ASR 9000)
+Always use these generic names in code and documentation:
+  n7k    -- NX-OS  (e.g. Nexus 7000)
+  cat9k  -- IOS-XE (e.g. Catalyst 9000)
+  asr9k  -- IOS-XR (e.g. ASR 9000)
+Never use private or customer-specific names.
 
 ---
 
@@ -76,12 +77,43 @@ Run bootstrap:
 
 ## CLI Arguments
 
-  --router      Router name (required)
-  --os          OS type: nxos | iosxe | iosxr (required)
-  --kpis        Space-separated KPI names (optional, default: all)
-  --list-kpis   List available KPIs and exit
-  --input-dir   Input files directory (default: input_files)
-  --models      KPI models YAML file (default: kpi_models.yaml)
+  --router        Router name (required)
+  --os            OS type: nxos | iosxe | iosxr (required)
+  --kpis          Space-separated KPI names (optional, default: all)
+  --list-kpis     List available KPIs and exit
+  --input-dir     Input files directory (default: input_files)
+  --models        KPI models YAML file (default: kpi_models.yaml)
+  --verbosity     0=silent 1=minimal 2=normal 3=verbose (default: 2)
+  --output-json   Write results to JSON file
+
+---
+
+## Verbosity Levels
+
+  0 = silent   No console output
+  1 = minimal  One line per KPI: name + value
+  2 = normal   Condensed output (default)
+  3 = verbose  Full output with breakdown
+
+---
+
+## JSON Output Structure
+
+```json
+{
+  "router": "<name>",
+  "os": "<os_type>",
+  "timestamp": "<ISO 8601>",
+  "kpis": {
+    "<kpi_name>": {
+      "description": "<str>",
+      "value": <int>,
+      "status": "ok|warning|error",
+      "operation": "<str>"
+    }
+  }
+}
+```
 
 ---
 
@@ -156,8 +188,7 @@ total_bfd_sessions_down -- count of BFD sessions Down
 10. Use forward slashes in FILES keys
 11. Update feature_description each session
 12. Always include push=True, remote='origin', branch='main'
-13. Never use private or customer-specific names anywhere
-    Use generic names: n7k, cat9k, asr9k
+13. Never use private names -- use n7k, cat9k, asr9k
 
 ---
 
@@ -185,9 +216,10 @@ Operations: sum, count, max, min, avg, sum_lengths
 Input files: input_files/<router>__<command>.txt
 Genie NX-OS: PARSE_PARAMS=['output','text']
              show_fdb.ShowMacAddressTable for MAC KPI
-CLI args: --router --os --kpis --list-kpis
-          --input-dir --models
-Generic router names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)
+CLI: --router --os --kpis --list-kpis --input-dir
+     --models --verbosity (0-3) --output-json
+JSON output: router, os, timestamp, kpis{}
+Generic names: n7k (nxos), cat9k (iosxe), asr9k (iosxr)
 pyproject.toml: packages=[{include='kpi_calculator.py'}]
 PyATS: Linux/macOS/WSL2 only
 Bootstrap venv: ~/.bootstrap-venv
@@ -210,3 +242,4 @@ Please provide updated bootstrap_project.py with:
 | 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |
 | 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|
 | 0.1.7   | 2026-04-07 | Fix -- replace private names with generic n7k     |
+| 0.1.8   | 2026-04-07 | Add -- verbosity levels and JSON output           |
