@@ -20,6 +20,11 @@ SUPPORTED_OS      = ["nxos", "iosxe", "iosxr"]
 KPI_MODELS_FILE   = "kpi_models.yaml"
 DEFAULT_INPUT_DIR = "input_files"
 
+# Genie parser parameter names to try in order
+# output= works with NX-OS parsers in current Genie version
+# text= is tried as fallback for other versions
+PARSE_PARAMS = ["output", "text"]
+
 
 # ---------------------------------------------------------------
 # Supported Operations Registry
@@ -157,8 +162,7 @@ def parse_arguments() -> argparse.Namespace:
 
 def validate_kpi_models(models: dict) -> bool:
     """
-    Validates all KPI model entries individually, reporting
-    a descriptive error for each failing KPI.
+    Validates all KPI model entries individually.
     Returns True if all models are valid, False otherwise.
     """
     all_valid = True
@@ -304,19 +308,95 @@ def create_device(router_name: str, os_type: str) -> Device:
 # ---------------------------------------------------------------
 
 def read_input_file(filepath: str) -> str:
-    try:
-        with open(filepath, "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"[ERROR] File not found: '{filepath}'")
-        print(f"        Expected convention: "
-              f"<input_dir>/<router>__<show_command>.txt")
-        print(f"        Check --input-dir argument "
-              f"(default: {DEFAULT_INPUT_DIR})")
-        sys.exit(1)
-    except IOError as e:
-        print(f"[ERROR] Could not read file '{filepath}': {e}")
-        sys.exit(1)
+    """
+    Reads raw CLI output from file.
+    Tries multiple encodings to handle files captured
+    from different platforms and tools.
+
+    Encoding priority:
+      utf-8   — standard Linux/Mac captured output
+      cp1252  — Windows terminal captured output
+      latin-1 — fallback for Western European characters
+    """
+    encodings = ["utf-8", "cp1252", "latin-1"]
+
+    for encoding in encodings:
+        try:
+            with open(filepath, "r", encoding=encoding) as f:
+                content = f.read()
+            if encoding != "utf-8":
+                print(f"[INFO] File '{filepath}' read "
+                      f"using encoding: {encoding}")
+            return content
+        except UnicodeDecodeError:
+            continue
+        except FileNotFoundError:
+            print(f"[ERROR] File not found: '{filepath}'")
+            print(f"        Expected convention: "
+                  f"<input_dir>/<router>__<show_command>.txt")
+            print(f"        Check --input-dir argument "
+                  f"(default: {DEFAULT_INPUT_DIR})")
+            sys.exit(1)
+        except IOError as e:
+            print(f"[ERROR] Could not read file '{filepath}': {e}")
+            sys.exit(1)
+
+    print(f"[ERROR] Could not decode '{filepath}' "
+          f"with any supported encoding: {encodings}")
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------
+# Genie Parser — Try Multiple Parameter Names
+# ---------------------------------------------------------------
+
+def _try_parse(parser_class,
+               device,
+               raw_output: str,
+               show_command: str) -> dict:
+    """
+    Attempts offline parsing trying parameter names in the
+    order defined by PARSE_PARAMS constant.
+
+    Background:
+      Different Genie versions and different parser classes
+      use different parameter names for offline text input:
+        output= — used by NX-OS parsers in current Genie
+        text=   — used by some IOS-XE/IOS-XR parsers
+
+    The PARSE_PARAMS constant defines the order to try:
+      ["output", "text"]
+
+    This ensures NX-OS parsers work correctly while
+    still supporting other OS parsers.
+    """
+    parser = parser_class(device=device)
+    errors = []
+
+    for param_name in PARSE_PARAMS:
+        try:
+            result = parser.parse(**{param_name: raw_output})
+            print(f"[INFO] Parsed using {param_name}= parameter")
+            return result
+        except TypeError as e:
+            errors.append(f"{param_name}= : {e}")
+            continue
+        except Exception as e:
+            # Non-TypeError means parser found the param but
+            # had a content error — report immediately
+            print(f"[ERROR] Parsing failed for '{show_command}': {e}")
+            print(f"        Parser  : {parser_class.__name__}")
+            print(f"        Param   : {param_name}=")
+            sys.exit(1)
+
+    # All parameter names failed
+    print(f"[ERROR] Could not find working parse parameter "
+          f"for '{show_command}'")
+    print(f"        Parser : {parser_class.__name__}")
+    print(f"        Tried  : {PARSE_PARAMS}")
+    for err in errors:
+        print(f"        {err}")
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------
@@ -364,14 +444,11 @@ def parse_output(model: dict,
     device         = create_device(router_name, os_type)
     raw_output     = read_input_file(input_file)
 
-    try:
-        parser = resolved_class(device=device)
-        parsed = parser.parse(text=raw_output)
-        parse_cache[input_file] = parsed
-        return parsed
-    except Exception as e:
-        print(f"[ERROR] Parsing failed for '{show_command}': {e}")
-        sys.exit(1)
+    parsed = _try_parse(
+        resolved_class, device, raw_output, show_command
+    )
+    parse_cache[input_file] = parsed
+    return parsed
 
 
 # ---------------------------------------------------------------

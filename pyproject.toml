@@ -1,6 +1,6 @@
 [tool.poetry]
 name        = "pyats-kpi-calculator"
-version     = "0.1.3"
+version     = "0.1.4"
 description = "PyATS Offline KPI Calculator — Extract KPIs from captured NX-OS/IOS-XE/IOS-XR show command outputs"
 readme      = "README.md"
 packages    = [{include = "kpi_calculator.py"}]
