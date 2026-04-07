@@ -1,4 +1,4 @@
-# AI Session Guide — pyats-kpi-calculator
+# AI Session Guide -- pyats-kpi-calculator
 
 ## Purpose
 
@@ -13,7 +13,7 @@ pyats-kpi-calculator is a Python CLI tool that extracts KPIs
 from offline Cisco device show command outputs using PyATS/Genie.
 
 ### Core Principles
-- All files are exclusively AI-generated — no manual edits
+- All files are exclusively AI-generated -- no manual edits
 - Changes applied via bootstrap_project.py
 - ai-bootstrap >= 0.2.0 manages git commits, file writing
   and push to GitHub
@@ -36,15 +36,20 @@ schema              = >=0.7.5
 
 ## Platform Requirements
 
-PyATS runs on Linux/macOS/WSL2 only — not native Windows.
+PyATS runs on Linux/macOS/WSL2 only -- not native Windows.
 Ubuntu 24.04 LTS on WSL2 is the recommended dev environment.
 
 ---
 
-## Genie Parser Parameter Note
+## Genie Parser Notes
 
-NX-OS Genie parsers use output= not text= for offline parsing.
+NX-OS parsers use output= not text= for offline parsing.
 Engine tries PARSE_PARAMS = ['output', 'text'] in order.
+
+Verified NX-OS parser locations:
+  show ip route summary  -> show_routing.ShowIpRouteSummary
+  show mac address-table -> show_fdb.ShowMacAddressTable
+  show bgp summary       -> show_bgp.ShowBgpSummary
 
 ---
 
@@ -117,21 +122,21 @@ sum | count | max | min | avg | sum_lengths
 
 ## Existing KPIs
 
-total_routes         — sum of routes across all VRFs
-max_routes_in_vrf    — max routes in a single VRF
-total_vrfs           — count of VRFs
-total_mac_addresses  — sum of MACs across all VLANs
-total_bgp_neighbors  — count of BGP neighbors
-total_bgp_routes_rib — sum of BGP prefixes received
-total_bfd_sessions_up   — count of BFD sessions Up
-total_bfd_sessions_down — count of BFD sessions Down
+total_routes         -- sum of routes across all VRFs
+max_routes_in_vrf    -- max routes in a single VRF
+total_vrfs           -- count of VRFs
+total_mac_addresses  -- sum of MACs across all VLANs
+total_bgp_neighbors  -- count of BGP neighbors
+total_bgp_routes_rib -- sum of BGP prefixes received
+total_bfd_sessions_up   -- count of BFD sessions Up
+total_bfd_sessions_down -- count of BFD sessions Down
 
 ---
 
 ## Bootstrap File Rules
 
 1.  Always include ALL files in FILES dict
-2.  Always overwrite — never skip or protect
+2.  Always overwrite -- never skip or protect
 3.  Triple-quoted strings for .py .yaml .toml
 4.  Concatenated strings for .md with code blocks
 5.  Escape internal quotes as \"
@@ -161,13 +166,14 @@ We use ai-bootstrap >= 0.2.0:
       branch='main'
   )
 Key files:
-  kpi_calculator.py    — generic engine
-  kpi_models.yaml      — KPI definitions
-  bootstrap_project.py — master rebuild script
+  kpi_calculator.py    -- generic engine
+  kpi_models.yaml      -- KPI definitions
+  bootstrap_project.py -- master rebuild script
 Supported OS: nxos, iosxe, iosxr
 Operations: sum, count, max, min, avg, sum_lengths
 Input files: input_files/<router>__<command>.txt
-Genie parsers: PARSE_PARAMS = ['output', 'text']
+Genie NX-OS: PARSE_PARAMS=['output','text']
+             show_fdb.ShowMacAddressTable for MAC KPI
 CLI args: --router --os --kpis --list-kpis
           --input-dir --models
 pyproject.toml: packages=[{include='kpi_calculator.py'}]
@@ -184,9 +190,10 @@ Please provide updated bootstrap_project.py with:
 
 | Version | Date       | Changes                                           |
 |---------|------------|---------------------------------------------------|
-| 0.1.0   | 2026-04-06 | Initial — engine, 8 KPIs, schema validation       |
-| 0.1.1   | 2026-04-06 | Fix — add packages directive to pyproject.toml    |
-| 0.1.2   | 2026-04-06 | Fix — add input_files/ dir to file path           |
-| 0.1.3   | 2026-04-06 | Add — push to GitHub via ai-bootstrap 0.2.0       |
-| 0.1.4   | 2026-04-07 | Fix — use output= param, add encoding handling    |
-| 0.1.5   | 2026-04-07 | Add — --kpis and --list-kpis CLI arguments        |
+| 0.1.0   | 2026-04-06 | Initial -- engine, 8 KPIs, schema validation      |
+| 0.1.1   | 2026-04-06 | Fix -- add packages directive to pyproject.toml   |
+| 0.1.2   | 2026-04-06 | Fix -- add input_files/ dir to file path          |
+| 0.1.3   | 2026-04-06 | Add -- push to GitHub via ai-bootstrap 0.2.0      |
+| 0.1.4   | 2026-04-07 | Fix -- use output= param, add encoding handling   |
+| 0.1.5   | 2026-04-07 | Add -- --kpis and --list-kpis CLI arguments       |
+| 0.1.6   | 2026-04-07 | Fix -- MAC parser module show_fdb not show_l2route|

@@ -1,5 +1,5 @@
 # BOOTSTRAP_TEMPLATE.py
-# pyats-kpi-calculator — Template for AI update sessions
+# pyats-kpi-calculator -- Template for AI update sessions
 #
 # INSTRUCTIONS FOR AI:
 #   1. Start from latest bootstrap_project.py

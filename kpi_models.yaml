@@ -63,7 +63,7 @@ total_mac_addresses:
   source:
     nxos:
       show_command:  "show mac address-table"
-      parser_module: "genie.libs.parser.nxos.show_l2route"
+      parser_module: "genie.libs.parser.nxos.show_fdb"
       parser_class:  "ShowMacAddressTable"
     iosxe:
       show_command:  "show mac address-table"
